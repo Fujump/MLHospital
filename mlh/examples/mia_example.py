@@ -1,3 +1,6 @@
+import sys
+import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
 from mlh.attacks.membership_inference.attacks import AttackDataset, BlackBoxMIA, MetricBasedMIA, LabelOnlyMIA
 from tqdm import tqdm
@@ -28,6 +31,14 @@ def parse_args():
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu index used for training')
 
+    # pruning
+    parser.add_argument('--prune', type=str, default="f",
+                        help='t(true), f(false)')
+    parser.add_argument('--pruner', type=str, default="norm",
+                        help='norm, tylor, hessian')
+    parser.add_argument('--global_pruning', type=str, default="f",
+                        help='t(true), f(false)')
+    
     # model dataset
     parser.add_argument('--model', type=str, default='resnet18')
     parser.add_argument('--load-pretrained', type=str, default='no')
@@ -86,16 +97,26 @@ if __name__ == "__main__":
     s = GetDataLoader(args)
     target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised()
 
-    target_model = get_target_model(name="resnet18", num_classes=10)
-    shadow_model = get_target_model(name="resnet18", num_classes=10)
+    # target_model = get_target_model(name="resnet18", num_classes=10)
+    # shadow_model = get_target_model(name="resnet18", num_classes=10)
 
-    # load target/shadow model to conduct the attacks
-    target_model.load_state_dict(torch.load(
-        f'{args.log_path}/{args.dataset}/{args.training_type}/target/{args.model}.pth'))
+    # # load target/shadow model to conduct the attacks
+    # target_model.load_state_dict(torch.load(
+    #     f'{args.log_path}/{args.dataset}/{args.training_type}/target/{args.model}.pth'))
+    # target_model = target_model.to(args.device)
+
+    # shadow_model.load_state_dict(torch.load(
+    #     f'{args.log_path}/{args.dataset}/{args.training_type}/shadow/{args.model}.pth'))
+    # shadow_model = shadow_model.to(args.device)
+    if args.prune=="t":
+        t_path=f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned/target/{args.model}_model.pth' if args.global_pruning=="f" else f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned_global/target/{args.model}_model.pth'
+        s_path=f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned/shadow/{args.model}_model.pth' if args.global_pruning=="f" else f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned_global/shadow/{args.model}_model.pth'
+        target_model=torch.load(t_path)
+        shadow_model=torch.load(s_path)
+    else:
+        target_model=torch.load(f'{args.log_path}/{args.dataset}/{args.training_type}/target/{args.model}_model.pth')
+        shadow_model=torch.load(f'{args.log_path}/{args.dataset}/{args.training_type}/shadow/{args.model}_model.pth')
     target_model = target_model.to(args.device)
-
-    shadow_model.load_state_dict(torch.load(
-        f'{args.log_path}/{args.dataset}/{args.training_type}/shadow/{args.model}.pth'))
     shadow_model = shadow_model.to(args.device)
 
     # generate attack dataset

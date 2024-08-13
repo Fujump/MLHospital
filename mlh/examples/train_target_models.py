@@ -1,5 +1,8 @@
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
+import torch_pruning as tp
 from mlh.defenses.membership_inference.AdvReg import TrainTargetAdvReg
 from mlh.defenses.membership_inference.DPSGD import TrainTargetDP
 from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmoothing
@@ -38,6 +41,14 @@ def parse_args():
                         help='number of training epochs')
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu index used for training')
+    
+    # pruning
+    parser.add_argument('--prune', type=str, default="f",
+                        help='t(true), f(false)')
+    parser.add_argument('--pruner', type=str, default="norm",
+                        help='norm, tylor, hessian')
+    parser.add_argument('--global_pruning', type=str, default="f",
+                        help='t(true), f(false)')
 
     # model dataset
     parser.add_argument('--model', type=str, default='resnet18')
@@ -104,7 +115,10 @@ if __name__ == "__main__":
 
     target_model = get_target_model(name="resnet18", num_classes=10)
 
-    save_pth = f'{opt.log_path}/{opt.dataset}/{opt.training_type}/{opt.mode}'
+    if opt.prune=="t":
+        save_pth = f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned/{opt.mode}' if opt.global_pruning=="f" else f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned_global/{opt.mode}'
+    else:
+        save_pth = f'{opt.log_path}/{opt.dataset}/{opt.training_type}/{opt.mode}'
 
     if opt.training_type == "Normal":
 
@@ -153,7 +167,51 @@ if __name__ == "__main__":
     else:
         raise ValueError(
             "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
+    
+    model = target_model
+    if opt.prune=="t":
+        example_inputs = torch.randn(1, 3, 32, 32).to('cuda')
 
-    torch.save(target_model.state_dict(),
+        # 1. Importance criterion
+        if opt.pruner=="norm":
+            imp = tp.importance.GroupNormImportance(p=2) # or GroupTaylorImportance(), GroupHessianImportance(), etc.
+        elif opt.pruner=="tylor":
+            imp = tp.importance.GroupTaylorImportance()
+        elif opt.pruner=="hessian":
+            imp = tp.importance.GroupHessianImportance()
+
+        # 2. Initialize a pruner with the model and the importance criterion
+        ignored_layers = []
+        for m in model.modules():
+            if isinstance(m, torch.nn.Linear) and m.out_features == 10:
+                ignored_layers.append(m) # DO NOT prune the final classifier!
+
+        pruner = tp.pruner.MetaPruner( # We can always choose MetaPruner if sparse training is not required.
+            model,
+            example_inputs,
+            importance=imp,
+            global_pruning=True if opt.global_pruning=="t" else False,
+            pruning_ratio=0.5, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
+            # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
+            ignored_layers=ignored_layers,
+        )
+
+        # 3. Prune & finetune the model
+        base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
+        pruner.step()
+        macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
+        print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
+        # finetune the pruned model here
+        total_evaluator = TrainTargetNormal(
+            model=target_model, epochs=100, log_path=save_pth)
+        total_evaluator.train(train_loader, test_loader)
+        # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
+        # finetune的epoch如何设置，是否要保持总epoch不变？
+    
+    torch.save(model.state_dict(),
                os.path.join(save_pth, f"{opt.model}.pth"))
+    # 4. Save & Load
+    model.zero_grad() # clear gradients to avoid a large file size
+    torch.save(model,
+               os.path.join(save_pth, f"{opt.model}_model.pth")) # !! no .state_dict for saving
     print("Finish Training")
