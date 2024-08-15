@@ -1,22 +1,6 @@
 import torch
 import torch.nn as nn
 import torch_pruning as tp
-
-class AdaptiveContrastivePruner(tp.pruner.MetaPruner):
-    def regularize(self, model, conf_member, conf_nonmember, reg_weight, margin=0.5):
-        # 计算member和non-member之间的差距
-        confidence_gap = conf_member - conf_nonmember
-        
-        # for name, param in model.named_parameters():
-        #     if 'weight' in name:
-        for m in model.modules():  # 遍历所有层
-            if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine==True:
-                # 基于confidence_gap调整正则化强度
-                adaptive_reg = reg_weight * torch.relu(confidence_gap + margin)
-                
-                # 对参数进行自适应正则化
-                # param.grad.data.add_(adaptive_reg.mean() * torch.sign(param.data))
-                m.weight.grad.data.add_(adaptive_reg.mean() * torch.sign(m.weight.data))
                 
 class GradGapPruner(tp.pruner.MetaPruner):
     def compute_grad_gap(self, member_grads, nonmember_grads):
