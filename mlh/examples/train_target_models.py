@@ -9,6 +9,7 @@ from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmo
 from mlh.defenses.membership_inference.MixupMMD import TrainTargetMixupMMD
 from mlh.defenses.membership_inference.PATE import TrainTargetPATE
 from mlh.defenses.membership_inference.Normal import TrainTargetNormal
+from mlh.defenses.membership_inference.pruner import MIAImportance, GradGapPruner
 from tqdm import tqdm
 import torch
 import torch.nn as nn
@@ -37,7 +38,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, default="shadow",
                         help='target, shadow')
 
-    parser.add_argument('--epochs', type=int, default=100,
+    parser.add_argument('--epochs', type=int, default=50,
                         help='number of training epochs')
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu index used for training')
@@ -46,7 +47,7 @@ def parse_args():
     parser.add_argument('--prune', type=str, default="f",
                         help='t(true), f(false)')
     parser.add_argument('--pruner', type=str, default="norm",
-                        help='norm, tylor, hessian')
+                        help='norm, tylor, hessian, mia')
     parser.add_argument('--global_pruning', type=str, default="f",
                         help='t(true), f(false)')
 
@@ -179,6 +180,8 @@ if __name__ == "__main__":
             imp = tp.importance.GroupTaylorImportance()
         elif opt.pruner=="hessian":
             imp = tp.importance.GroupHessianImportance()
+        elif opt.pruner=="mia":
+            imp = MIAImportance()
 
         # 2. Initialize a pruner with the model and the importance criterion
         ignored_layers = []
@@ -186,7 +189,7 @@ if __name__ == "__main__":
             if isinstance(m, torch.nn.Linear) and m.out_features == 10:
                 ignored_layers.append(m) # DO NOT prune the final classifier!
 
-        pruner = tp.pruner.MetaPruner( # We can always choose MetaPruner if sparse training is not required.
+        pruner = GradGapPruner( # We can always choose MetaPruner if sparse training is not required.
             model,
             example_inputs,
             importance=imp,
@@ -196,6 +199,11 @@ if __name__ == "__main__":
             ignored_layers=ignored_layers,
         )
 
+        if opt.pruner=="mia":
+            total_evaluator = TrainTargetNormal(
+                model=target_model, epochs=50, log_path=save_pth)
+            total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner)
+        
         # 3. Prune & finetune the model
         base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
         pruner.step()
@@ -203,7 +211,7 @@ if __name__ == "__main__":
         print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
         # finetune the pruned model here
         total_evaluator = TrainTargetNormal(
-            model=target_model, epochs=100, log_path=save_pth)
+            model=target_model, epochs=50, log_path=save_pth)
         total_evaluator.train(train_loader, test_loader)
         # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
         # finetune的epoch如何设置，是否要保持总epoch不变？

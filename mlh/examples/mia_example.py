@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument('--prune', type=str, default="f",
                         help='t(true), f(false)')
     parser.add_argument('--pruner', type=str, default="norm",
-                        help='norm, tylor, hessian')
+                        help='norm, tylor, hessian, mia')
     parser.add_argument('--global_pruning', type=str, default="f",
                         help='t(true), f(false)')
     

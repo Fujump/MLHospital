@@ -154,3 +154,112 @@ class TrainTargetNormal(Trainer):
 
         # torch.save(self.model.state_dict(), os.path.join(
         #     self.log_path, "%s.pth" % self.model_save_name))
+
+    # def train_sparse(self, member_loader, nonmember_loader, test_loader, pruner):
+    #     best_accuracy = 0
+    #     t_start = time.time()
+
+    #     # check whether path exists
+    #     if not os.path.exists(self.log_path):
+    #         os.makedirs(self.log_path)
+
+    #     for e in range(1, self.epochs + 1):
+    #         batch_n = 0
+    #         self.model.train()
+    #         member_iter = iter(member_loader)
+    #         nonmember_iter = iter(nonmember_loader)
+            
+    #         for img, label in member_loader:
+    #             self.model.zero_grad()
+    #             batch_n += 1
+
+    #             img, label = img.to(self.device), label.to(self.device)
+    #             logits = self.model(img)
+    #             loss = self.criterion(logits, label)
+                
+    #             # 获取对应的nonmember数据
+    #             try:
+    #                 nonmember_img, _ = next(nonmember_iter)
+    #             except StopIteration:
+    #                 nonmember_iter = iter(nonmember_loader)
+    #                 nonmember_img, _ = next(nonmember_iter)
+
+    #             nonmember_img = nonmember_img.to(self.device)
+                
+    #             # 计算member和nonmember的置信度
+    #             conf_member = self.model(img).max(1)[0]
+    #             conf_nonmember = self.model(nonmember_img).max(1)[0]
+                
+    #             # 反向传播分类损失
+    #             loss.backward()
+
+    #             # 执行自适应正则化
+    #             pruner.regularize(self.model, conf_member, conf_nonmember, reg_weight=1e-5)
+
+    #             # 更新模型参数
+    #             self.optimizer.step()
+
+    #         train_acc = self.eval(member_loader)
+    #         test_acc = self.eval(test_loader)
+    #         logx.msg('Train Epoch: %d, Total Sample: %d, Train Acc: %.3f, Test Acc: %.3f, Total Time: %.3fs' % (
+    #             e, len(member_loader.dataset), train_acc, test_acc, time.time() - t_start))
+            
+    #         self.scheduler.step()
+
+    def train_sparse(self, member_loader, nonmember_loader, test_loader, pruner):
+        best_accuracy = 0
+        t_start = time.time()
+
+        # check whether path exists
+        if not os.path.exists(self.log_path):
+            os.makedirs(self.log_path)
+
+        for e in range(1, self.epochs + 1):
+            batch_n = 0
+            self.model.train()
+            member_iter = iter(member_loader)
+            nonmember_iter = iter(nonmember_loader)
+            
+            for img, label in member_loader:
+                self.model.zero_grad()
+                batch_n += 1
+
+                img, label = img.to(self.device), label.to(self.device)
+
+                # 获取对应的 nonmember 数据
+                try:
+                    nonmember_img, _ = next(nonmember_iter)
+                except StopIteration:
+                    nonmember_iter = iter(nonmember_loader)
+                    nonmember_img, _ = next(nonmember_iter)
+
+                nonmember_img = nonmember_img.to(self.device)
+                
+                # 计算 nonmember 数据的梯度（首先计算 nonmember 的梯度）
+                logits_nonmember = self.model(nonmember_img)
+                loss_nonmember = logits_nonmember.mean()  # 计算非成员数据的损失
+                loss_nonmember.backward(retain_graph=True)
+                nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+
+                # 计算 member 数据的梯度（然后计算 member 的梯度，保留在模型中的梯度将基于 member 数据）
+                self.model.zero_grad()  # 重置梯度
+                logits_member = self.model(img)
+                loss_member = self.criterion(logits_member, label)
+                loss_member.backward(retain_graph=True)
+                member_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+
+                # 计算梯度差异（grad gap）
+                grad_gaps = pruner.compute_grad_gap(member_grads, nonmember_grads)
+
+                # 执行自适应正则化
+                pruner.regularize(self.model, grad_gaps, reg_weight=1e-5)
+
+                # 更新模型参数
+                self.optimizer.step()
+
+            train_acc = self.eval(member_loader)
+            test_acc = self.eval(test_loader)
+            logx.msg('Train Epoch: %d, Total Sample: %d, Train Acc: %.3f, Test Acc: %.3f, Total Time: %.3fs' % (
+                e, len(member_loader.dataset), train_acc, test_acc, time.time() - t_start))
+            
+            self.scheduler.step()
