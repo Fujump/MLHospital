@@ -38,7 +38,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, default="shadow",
                         help='target, shadow')
 
-    parser.add_argument('--epochs', type=int, default=50,
+    parser.add_argument('--epochs', type=int, default=100,
                         help='number of training epochs')
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu index used for training')
@@ -181,7 +181,8 @@ if __name__ == "__main__":
         elif opt.pruner=="hessian":
             imp = tp.importance.GroupHessianImportance()
         elif opt.pruner=="mia":
-            imp = MIAImportance()
+            # imp = MIAImportance()
+            imp = tp.importance.GroupNormImportance(p=1)
 
         # 2. Initialize a pruner with the model and the importance criterion
         ignored_layers = []
@@ -194,14 +195,14 @@ if __name__ == "__main__":
             example_inputs,
             importance=imp,
             global_pruning=True if opt.global_pruning=="t" else False,
-            pruning_ratio=0.5, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
+            pruning_ratio=0.1, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
             # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
             ignored_layers=ignored_layers,
         )
 
         if opt.pruner=="mia":
             total_evaluator = TrainTargetNormal(
-                model=target_model, epochs=50, log_path=save_pth)
+                model=target_model, epochs=5, log_path=save_pth)
             total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner)
         
         # 3. Prune & finetune the model
@@ -211,7 +212,7 @@ if __name__ == "__main__":
         print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
         # finetune the pruned model here
         total_evaluator = TrainTargetNormal(
-            model=target_model, epochs=50, log_path=save_pth)
+            model=target_model, epochs=100, log_path=save_pth)
         total_evaluator.train(train_loader, test_loader)
         # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
         # finetune的epoch如何设置，是否要保持总epoch不变？
