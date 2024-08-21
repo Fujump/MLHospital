@@ -162,6 +162,6 @@ cython_debug/
 # Projects
 scripts/
 datasets/
-save/
+save*
 log*
 .DS_Store

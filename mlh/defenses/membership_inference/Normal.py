@@ -189,14 +189,16 @@ class TrainTargetNormal(Trainer):
                 logits_nonmember = self.model(nonmember_img)
                 loss_nonmember = logits_nonmember.mean()  # 计算非成员数据的损失
                 loss_nonmember.backward(retain_graph=True)
-                nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+                # nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+                nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))}
 
                 # 计算 member 数据的梯度（然后计算 member 的梯度，保留在模型中的梯度将基于 member 数据）
                 self.model.zero_grad()  # 重置梯度
                 logits_member = self.model(img)
                 loss_member = self.criterion(logits_member, label)
                 loss_member.backward(retain_graph=True)
-                member_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+                # member_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
+                member_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))}
 
                 # 计算梯度差异（grad gap）
                 grad_gaps = pruner.compute_grad_gap(member_grads, nonmember_grads)
