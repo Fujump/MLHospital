@@ -195,7 +195,7 @@ if __name__ == "__main__":
             example_inputs,
             importance=imp,
             global_pruning=True if opt.global_pruning=="t" else False,
-            pruning_ratio=0.1, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
+            pruning_ratio=0.5, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
             # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
             ignored_layers=ignored_layers,
         )
@@ -211,9 +211,24 @@ if __name__ == "__main__":
         macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
         print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
         # finetune the pruned model here
+        #####################
+        from torch.utils.data import DataLoader, random_split
+        # 设置随机种子
+        torch.manual_seed(42)
+        # 获取数据集和数据集的长度
+        dataset = train_loader.dataset
+        dataset_len = len(dataset)
+
+        # 将数据集平均分成两个
+        subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+
+        # 为每个子集创建新的 DataLoader
+        train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+        train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+        #####################
         total_evaluator = TrainTargetNormal(
             model=target_model, epochs=100, log_path=save_pth)
-        total_evaluator.train(train_loader, test_loader)
+        total_evaluator.train(train_loader_finetune, test_loader)
         # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
         # finetune的epoch如何设置，是否要保持总epoch不变？
     

@@ -96,7 +96,66 @@ if __name__ == "__main__":
     args = parse_args()
     s = GetDataLoader(args)
     target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised()
+    # #####################
+    # from torch.utils.data import DataLoader, random_split
+    # # 设置随机种子
+    # torch.manual_seed(42)
+    # # 获取数据集和数据集的长度
+    # dataset = target_train_loader.dataset
+    # dataset_len = len(dataset)
 
+    # # 将数据集平均分成两个
+    # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+
+    # # 为每个子集创建新的 DataLoader
+    # train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+    # train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+    
+    # target_train_loader=train_loader_attack
+    # #########################
+    # # 获取数据集和数据集的长度
+    # dataset = target_test_loader.dataset
+    # dataset_len = len(dataset)
+
+    # # 将数据集平均分成两个
+    # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+
+    # # 为每个子集创建新的 DataLoader
+    # test_loader_1 = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+    # test_loader_2 = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+    
+    # target_test_loader=test_loader_1
+    # #####################
+    # #####################
+    # from torch.utils.data import DataLoader, random_split
+    # # 设置随机种子
+    # torch.manual_seed(42)
+    # # 获取数据集和数据集的长度
+    # dataset = shadow_train_loader.dataset
+    # dataset_len = len(dataset)
+
+    # # 将数据集平均分成两个
+    # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+
+    # # 为每个子集创建新的 DataLoader
+    # train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+    # train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+    
+    # shadow_train_loader=train_loader_attack
+    # #########################
+    # # 获取数据集和数据集的长度
+    # dataset = shadow_test_loader.dataset
+    # dataset_len = len(dataset)
+
+    # # 将数据集平均分成两个
+    # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+
+    # # 为每个子集创建新的 DataLoader
+    # test_loader_1 = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+    # test_loader_2 = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+    
+    # shadow_test_loader=test_loader_1
+    # #####################
     # target_model = get_target_model(name="resnet18", num_classes=10)
     # shadow_model = get_target_model(name="resnet18", num_classes=10)
 
