@@ -178,16 +178,17 @@ class TrainTargetNormal(Trainer):
 
                 # 获取对应的 nonmember 数据
                 try:
-                    nonmember_img, _ = next(nonmember_iter)
+                    nonmember_img, nonmember_label = next(nonmember_iter)
                 except StopIteration:
                     nonmember_iter = iter(nonmember_loader)
-                    nonmember_img, _ = next(nonmember_iter)
+                    nonmember_img, nonmember_label = next(nonmember_iter)
 
                 nonmember_img = nonmember_img.to(self.device)
+                nonmember_label = nonmember_label.to(self.device)
                 
                 # 计算 nonmember 数据的梯度（首先计算 nonmember 的梯度）
                 logits_nonmember = self.model(nonmember_img)
-                loss_nonmember = logits_nonmember.mean()  # 计算非成员数据的损失
+                loss_nonmember = self.criterion(logits_nonmember, nonmember_label) # 计算非成员数据的损失
                 loss_nonmember.backward(retain_graph=True)
                 # nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)) and m.affine}
                 nonmember_grads = {m.weight: m.weight.grad.clone() for m in self.model.modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))}

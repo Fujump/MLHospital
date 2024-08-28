@@ -114,7 +114,7 @@ if __name__ == "__main__":
     else:
         raise ValueError("opt.mode should be target or shadow")
 
-    target_model = get_target_model(name="resnet18", num_classes=10)
+    target_model = get_target_model(name="resnet18", num_classes=10).cuda()
 
     if opt.prune=="t":
         save_pth = f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned/{opt.mode}' if opt.global_pruning=="f" else f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned_global/{opt.mode}'
@@ -126,6 +126,7 @@ if __name__ == "__main__":
         total_evaluator = TrainTargetNormal(
             model=target_model, epochs=opt.epochs, log_path=save_pth)
         total_evaluator.train(train_loader, test_loader)
+        # pass
 
     elif opt.training_type == "LabelSmoothing":
 
@@ -202,35 +203,35 @@ if __name__ == "__main__":
 
         if opt.pruner=="mia":
             total_evaluator = TrainTargetNormal(
-                model=target_model, epochs=5, log_path=save_pth)
+                model=target_model, epochs=20, log_path=save_pth)
             total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner)
         
-        # 3. Prune & finetune the model
-        base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        pruner.step()
-        macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
-        # finetune the pruned model here
-        #####################
-        from torch.utils.data import DataLoader, random_split
-        # 设置随机种子
-        torch.manual_seed(42)
-        # 获取数据集和数据集的长度
-        dataset = train_loader.dataset
-        dataset_len = len(dataset)
+        # # 3. Prune & finetune the model
+        # base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
+        # pruner.step()
+        # macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
+        # print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
+        # # finetune the pruned model here
+        # #####################
+        # from torch.utils.data import DataLoader, random_split
+        # # 设置随机种子
+        # torch.manual_seed(42)
+        # # 获取数据集和数据集的长度
+        # dataset = train_loader.dataset
+        # dataset_len = len(dataset)
 
-        # 将数据集平均分成两个
-        subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+        # # 将数据集平均分成两个
+        # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
 
-        # 为每个子集创建新的 DataLoader
-        train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
-        train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
-        #####################
-        total_evaluator = TrainTargetNormal(
-            model=target_model, epochs=100, log_path=save_pth)
-        total_evaluator.train(train_loader_finetune, test_loader)
-        # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
-        # finetune的epoch如何设置，是否要保持总epoch不变？
+        # # 为每个子集创建新的 DataLoader
+        # train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+        # train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+        # #####################
+        # total_evaluator = TrainTargetNormal(
+        #     model=target_model, epochs=100, log_path=save_pth)
+        # total_evaluator.train(train_loader_finetune, test_loader)
+        # # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
+        # # finetune的epoch如何设置，是否要保持总epoch不变？
     
     torch.save(model.state_dict(),
                os.path.join(save_pth, f"{opt.model}.pth"))
