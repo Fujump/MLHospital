@@ -3,6 +3,7 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
 from mlh.attacks.membership_inference.attacks import AttackDataset, BlackBoxMIA, MetricBasedMIA, LabelOnlyMIA
+from mlh.attacks.membership_inference.data_augmentation_attack import AugemtaionAttackDataset, DataAugmentationMIA
 from tqdm import tqdm
 import torch
 import torch.nn as nn
@@ -58,11 +59,17 @@ def parse_args():
                         help='comma delimited input shape input')
     parser.add_argument('--log_path', type=str,
                         default='./save', help='')
+    
+    parser.add_argument('--augment_kwarg_translation', type=float, default=1,
+                        help='')
+    parser.add_argument('--augment_kwarg_rotation', type=float, default=1,
+                        help='')
 
     args = parser.parse_args()
 
     args.input_shape = [int(item) for item in args.input_shape.split(',')]
-    args.device = 'cuda:%d' % args.gpu if torch.cuda.is_available() else 'cpu'
+    # args.device = 'cuda:%d' % args.gpu if torch.cuda.is_available() else 'cpu'
+    args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     return args
 
@@ -71,10 +78,18 @@ def get_target_model(name="resnet18", num_classes=10):
     if name == "resnet18":
         model = torchvision.models.resnet18()
         model.fc = nn.Sequential(nn.Linear(512, 10))
+    elif name == "dense121":
+        model = torchvision.models.densenet121(weights="IMAGENET1K_V1")
+        # model = torchvision.models.densenet121()
+        model.classifier = nn.Sequential(nn.Linear(1024, num_classes))
+    elif name == "TexasClassifier":
+        model= Texas(num_classes = num_classes)
+    elif name == "PurchaseClassifier":
+        model= Purchase(num_classes = num_classes)
+
     else:
         raise ValueError("Model not implemented yet :P")
     return model
-
 
 def evaluate(model, dataloader):
     model.eval()
@@ -156,8 +171,8 @@ if __name__ == "__main__":
     
     # shadow_test_loader=test_loader_1
     # #####################
-    # target_model = get_target_model(name="resnet18", num_classes=10)
-    # shadow_model = get_target_model(name="resnet18", num_classes=10)
+    # target = get_target_model(name=args.model, num_classes=args.num_class)
+    # shadow = get_target_model(name=args.model, num_classes=args.num_class)
 
     # # load target/shadow model to conduct the attacks
     # target_model.load_state_dict(torch.load(
@@ -175,6 +190,27 @@ if __name__ == "__main__":
     else:
         target_model=torch.load(f'{args.log_path}/{args.dataset}/{args.training_type}/target/{args.model}_model.pth')
         shadow_model=torch.load(f'{args.log_path}/{args.dataset}/{args.training_type}/shadow/{args.model}_model.pth')
+        target_path=f'{args.log_path}/{args.dataset}/{args.training_type}/target/{args.model}_model.pth'
+        shadow_path=f'{args.log_path}/{args.dataset}/{args.training_type}/shadow/{args.model}_model.pth'
+        print(f'target_model:{target_path}')
+        print(f'shadow_path:{shadow_path}')
+    
+    # from collections import OrderedDict
+    # new_state_dict = OrderedDict()
+    # for k, v in target_model['state_dict'].items():
+    #     name = k.replace('module.', '')  # 去掉 `module.` 前缀
+    #     new_state_dict[name] = v
+    # # 加载模型参数
+    # target.load_state_dict(new_state_dict)
+    # new_state_dict = OrderedDict()
+    # for k, v in shadow_model['state_dict'].items():
+    #     name = k.replace('module.', '')  # 去掉 `module.` 前缀
+    #     new_state_dict[name] = v
+    # # 加载模型参数
+    # shadow.load_state_dict(new_state_dict)
+    # target_model,shadow_model=target,shadow
+    
+    
     target_model = target_model.to(args.device)
     shadow_model = shadow_model.to(args.device)
 
@@ -197,9 +233,17 @@ if __name__ == "__main__":
         print(auc)
 
     else:
-
-        attack_dataset = AttackDataset(args, attack_type, target_model, shadow_model,
-                                       target_train_loader, target_test_loader, shadow_train_loader, shadow_test_loader)
+        if attack_type == "augmentation":
+            attack_dataset_rotation = AugemtaionAttackDataset( args, "rotation" , target_model, shadow_model,
+                                            target_train_loader.dataset, target_test_loader.dataset, shadow_train_loader.dataset, shadow_test_loader.dataset,args.device)
+            
+            attack_dataset_translation =AugemtaionAttackDataset( args, "translation" , target_model, shadow_model,
+                                            target_train_loader.dataset, target_test_loader.dataset, shadow_train_loader.dataset, shadow_test_loader.dataset,args.device)
+            print(attack_dataset_rotation.attack_train_dataset.data.shape[1])
+            print("Attack datasets are ready")
+        else:
+            attack_dataset = AttackDataset(args, attack_type, target_model, shadow_model,
+                                        target_train_loader, target_test_loader, shadow_train_loader, shadow_test_loader)
 
         # train attack model
 
@@ -211,7 +255,7 @@ if __name__ == "__main__":
                 attack_train_dataset=attack_dataset.attack_train_dataset,
                 attack_test_dataset=attack_dataset.attack_test_dataset,
                 batch_size=128)
-        elif "metric-based" in attack_type:
+        elif ("metric-based" in attack_type) or ("white-box" in attack_type):
             attack_model = MetricBasedMIA(
                 num_class=args.num_class,
                 device=args.device,
@@ -219,3 +263,20 @@ if __name__ == "__main__":
                 attack_train_dataset=attack_dataset.attack_train_dataset,
                 attack_test_dataset=attack_dataset.attack_test_dataset,
                 batch_size=128)
+        elif "augmentation" in attack_type:
+            attack_model = DataAugmentationMIA(
+                num_class = attack_dataset_rotation.attack_train_dataset.data.shape[1],
+                device = args.device, 
+                attack_type= "rotation",
+                attack_train_dataset=attack_dataset_rotation.attack_train_dataset,  
+                attack_test_dataset= attack_dataset_rotation.attack_train_dataset,  
+                # save_path= save_path, 
+                batch_size= 128)
+            attack_model = DataAugmentationMIA(
+                num_class = attack_dataset_translation.attack_train_dataset.data.shape[1],
+                device = args.device, 
+                attack_type= "translation",
+                attack_train_dataset=attack_dataset_translation.attack_train_dataset,  
+                attack_test_dataset= attack_dataset_translation.attack_test_dataset,
+                # save_path= save_path, 
+                batch_size= 128)
