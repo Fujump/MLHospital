@@ -194,6 +194,7 @@ class TrainTargetMixupMMD(Trainer):
             for img, label in tqdm(train_loader, desc="train mixup"):
                 self.model.zero_grad()
                 batch_n += 1
+                img, label=img.to(self.device), label.to(self.device)
 
                 if (self.mixup):
                     inputs, targets_a, targets_b, lam = mixup_data(

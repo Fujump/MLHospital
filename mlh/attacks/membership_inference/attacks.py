@@ -27,6 +27,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data.dataset import Dataset
+from scipy.stats import kurtosis, skew
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve, auc, classification_report
 from runx.logx import logx
 from tqdm import tqdm
@@ -39,6 +40,24 @@ from art.attacks.inference.membership_inference import LabelOnlyDecisionBoundary
 import abc
 from mlh.models.attack_model import MLP_BLACKBOX
 
+
+def cross_entropy(prob, label):
+    epsilon = 1e-12
+    prob = np.clip(prob, epsilon, 1.0 - epsilon)
+    one_hot_label = np.zeros_like(prob)
+    one_hot_label[np.arange(len(label)), label] = 1
+    return -np.sum(one_hot_label * np.log(prob), axis=1)
+
+def compute_norm_metrics(gradient):
+    """Compute the metrics"""
+    l1 = np.linalg.norm(gradient, ord=1)
+    l2 = np.linalg.norm(gradient)
+    min = np.linalg.norm(gradient, ord=-np.inf)  ## min(abs(x))
+    max = np.linalg.norm(gradient, ord=np.inf)  ## max(abs(x))
+    mean = np.average(gradient)
+    skewness = skew(gradient)
+    kurtosis_val = kurtosis(gradient)
+    return [l1, l2, min, max, mean, skewness, kurtosis_val]
 
 class FeatureExtractor(nn.Module):
     def __init__(self, model, layers):
@@ -88,7 +107,60 @@ class ModelParser():
         self.device = self.args.device
         self.model = model.to(self.device)
 
+    def combined_gradient_attack(self, dataloader):
+        """Gradient attack w.r.t input and weights"""
+        self.model.eval()
+        target_list = []
+        # store results
+        names = ['l1', 'l2', 'Min', 'Max', 'Mean', 'Skewness', 'Kurtosis']
+        all_stats_x = {name: [] for name in names}
+        all_stats_w = {name: [] for name in names}
+
+        # iterate over batches
+        for batch_idx, (inputs, targets) in enumerate(dataloader):
+            inputs, targets = inputs.to(self.device), targets.to(self.device)
+            inputs.requires_grad = True  # Enable gradient computation w.r.t inputs
+
+            # Compute output and loss
+            outputs = self.model(inputs)
+            criterion = nn.CrossEntropyLoss()
+            loss = criterion(outputs, targets)
+
+            target_list += targets.cpu().tolist()
+
+            # Zero gradients, perform a backward pass, and get the gradients
+            self.model.zero_grad()
+            loss.backward()
+
+            # Gradients w.r.t input
+            gradients_x = inputs.grad.view(inputs.size(0), -1).cpu().numpy()
+
+            # Gradients w.r.t weights
+            grads_onesample = []
+            for param in self.model.parameters():
+                grads_onesample.append(param.grad.view(-1))
+            gradient_w = torch.cat(grads_onesample).cpu().numpy()
+
+            # Compute and store statistics for each sample in the batch
+            for gradient in gradients_x:
+                stats = compute_norm_metrics(gradient)
+                for i, stat in enumerate(stats):
+                    all_stats_x[names[i]].append(stat)
+
+            # Assuming the gradients w.r.t weights are the same for all samples in the batch
+            stats = compute_norm_metrics(gradient_w)
+            for i, stat in enumerate(stats):
+                all_stats_w[names[i]].extend([stat] * len(inputs))
+
+        # Convert lists to numpy arrays
+        for name in names:
+            all_stats_x[name] = np.array(all_stats_x[name])
+            all_stats_w[name] = np.array(all_stats_w[name])
+
+        return {"targets" :target_list, "gird_x_w": (all_stats_x, all_stats_w)}
+
     def get_posteriors(self, dataloader):
+        self.model.eval()
         info = {}
         target_list = []
         posteriors_list = []
@@ -103,6 +175,7 @@ class ModelParser():
         return {"targets": target_list, "posteriors": posteriors_list}
 
     def parse_info_whitebox(self, dataloader, layers):
+        self.model.eval()
         info = {}
         target_list = []
         posteriors_list = []
@@ -144,15 +217,21 @@ class AttackDataset():
         self.target_model_parser = ModelParser(args, target_model)
         self.shadow_model_parser = ModelParser(args, shadow_model)
 
-        # if attack_type == "black-box":
-        self.target_train_info = self.target_model_parser.get_posteriors(
-            target_train_dataloader)
-        self.target_test_info = self.target_model_parser.get_posteriors(
-            target_test_dataloader)
-        self.shadow_train_info = self.shadow_model_parser.get_posteriors(
-            shadow_train_dataloader)
-        self.shadow_test_info = self.shadow_model_parser.get_posteriors(
-            shadow_test_dataloader)
+        if attack_type == "white-box":
+            self.target_train_info = self.target_model_parser.combined_gradient_attack(target_train_dataloader)
+            self.target_test_info = self.target_model_parser.combined_gradient_attack(target_test_dataloader)
+            self.shadow_train_info = self.shadow_model_parser.combined_gradient_attack(shadow_train_dataloader)
+            self.shadow_test_info = self.shadow_model_parser.combined_gradient_attack(shadow_test_dataloader)
+        else:
+            # if attack_type == "black-box":
+            self.target_train_info = self.target_model_parser.get_posteriors(
+                target_train_dataloader)
+            self.target_test_info = self.target_model_parser.get_posteriors(
+                target_test_dataloader)
+            self.shadow_train_info = self.shadow_model_parser.get_posteriors(
+                shadow_train_dataloader)
+            self.shadow_test_info = self.shadow_model_parser.get_posteriors(
+                shadow_test_dataloader)
 
         # get attack dataset
         self.attack_train_dataset, self.attack_test_dataset = self.generate_attack_dataset()
@@ -172,6 +251,8 @@ class AttackDataset():
                         for row in info["posteriors"]]
         elif parse_type == "metric-based":
             mem_data = info["posteriors"]
+        elif parse_type == "white-box":
+            mem_data = info["gird_x_w"]
         else:
             raise ValueError("More implementation is needed :P")
         return mem_data, mem_label, original_label
@@ -186,21 +267,35 @@ class AttackDataset():
         mem_data3, mem_label3, original_label3 = self.parse_info(
             self.shadow_test_info, label=0)
 
-        attack_train_dataset = torch.utils.data.TensorDataset(
-            torch.from_numpy(np.array(mem_data2 + mem_data3, dtype='f')),
-            torch.from_numpy(np.array(mem_label2 + mem_label3)
-                             ).type(torch.long),
-            torch.from_numpy(np.array(original_label2 +
-                             original_label3)).type(torch.long),
-        )
+        if self.attack_type == "white-box":
+            attack_train_dataset = [
+                {"shadow_train_data": mem_data0, "shadow_test_data": mem_data1},
+                {"shadow_train_mem_label": mem_label0, "shadow_test_mem_label": mem_label1},
+                {"shadow_train_label": original_label0, "shadow_test_label": original_label1}
+            ]
+        else:
+            attack_train_dataset = torch.utils.data.TensorDataset(
+                torch.from_numpy(np.array(mem_data2 + mem_data3, dtype='f')),
+                torch.from_numpy(np.array(mem_label2 + mem_label3)
+                                ).type(torch.long),
+                torch.from_numpy(np.array(original_label2 +
+                                original_label3)).type(torch.long),
+            )
 
-        attack_test_dataset = torch.utils.data.TensorDataset(
-            torch.from_numpy(np.array(mem_data0 + mem_data1, dtype='f')),
-            torch.from_numpy(np.array(mem_label0 + mem_label1)
-                             ).type(torch.long),
-            torch.from_numpy(np.array(original_label0 +
-                             original_label1)).type(torch.long),
-        )
+        if self.attack_type == "white-box":
+            attack_test_dataset = [
+                {"target_train_data": mem_data0, "target_test_data": mem_data1},
+                {"target_train_mem_label": mem_label0, "target_test_mem_label": mem_label1},
+                {"target_train_label": original_label0, "target_test_label": original_label1}
+            ]
+        else:
+            attack_test_dataset = torch.utils.data.TensorDataset(
+                torch.from_numpy(np.array(mem_data0 + mem_data1, dtype='f')),
+                torch.from_numpy(np.array(mem_label0 + mem_label1)
+                                ).type(torch.long),
+                torch.from_numpy(np.array(original_label0 +
+                                original_label1)).type(torch.long),
+            )
 
         return attack_train_dataset, attack_test_dataset
 
@@ -220,6 +315,8 @@ class MembershipInferenceAttack(abc.ABC):
         precision = precision_score(label, pred_label)
         recall = recall_score(label, pred_label)
         f1 = f1_score(label, pred_label)
+        if np.isnan(np.sum(label)) or np.isnan(np.sum(pred_posteriors)):
+            raise ValueError("Input contains NaN values.")
         auc = roc_auc_score(label, pred_posteriors)
 
         return acc, precision, recall, f1, auc
@@ -273,8 +370,62 @@ class MetricBasedMIA(MembershipInferenceAttack):
 
         if self.attack_type == "metric-based":
             self.metric_based_attacks()
+        elif self.attack_type == "white-box":
+            self.white_box_grid_attacks()
         else:
             raise ValueError("Not implemented yet")
+
+    def white_box_grid_attacks(self):
+
+        self.parse_data_white_box_attacks()
+        names = ['l1', 'l2', 'Min', 'Max', 'Mean', 'Skewness', 'Kurtosis']
+        # self.s_tr_conf[] = self.attack_train_dataset
+        name_list = ["acc", "precision", "recall", "f1", "auc"]
+        target_train = self.attack_test_dataset[0]["target_train_data"]
+        target_test = self.attack_test_dataset[0]["target_test_data"]
+        shadow_train = self.attack_train_dataset[0]["shadow_train_data"]
+        shadow_test = self.attack_train_dataset[0]["shadow_test_data"]
+
+        wb_dict = {}
+
+        for name in names:
+            train_tuple_x, test_tuple_x, _ = self._mem_inf_thre(
+                f"{name} ", -shadow_train[0][name], -shadow_test[0][name], -target_train[0][name],
+                -target_test[0][name])
+            train_tuple_w, test_tuple_w, _ = self._mem_inf_thre(
+                f"{name} ", -shadow_train[1][name], -shadow_test[1][name], -target_train[1][name],
+                -target_test[1][name])
+
+            # for i in range(len(name_list)):
+            key1 = f"grid_x_{name}_train"
+            key2 = f"grid_x_{name}_test"
+            key3 = f"grid_w_{name}_train"
+            key4 = f"grid_w_{name}_test"
+            # wb_dict[key1] = float(train_tuple_x[i])
+            # wb_dict[key2] = float(test_tuple_x[i])
+            # wb_dict[key3] = float(train_tuple_w[i])
+            # wb_dict[key4] = float(test_tuple_w[i])
+            self.print_result(f"{key1}", train_tuple_x)
+            self.print_result(f"{key2}", test_tuple_x)
+            self.print_result(f"{key3}", train_tuple_w)
+            self.print_result(f"{key4}", test_tuple_w)
+            
+            if name=="l1" or name=="Mean":
+                print(f"target train {name}: {np.mean(target_train[1][name])}, target test {name}: {np.mean(target_test[1][name])}")
+
+    def parse_data_white_box_attacks(self):
+        # shadow model
+        # For train set of shadow medel, we query shadow model, then obtain the outputs, that is **s_tr_outputs**
+        self.s_tr_labels = np.array(self.attack_train_dataset[2]["shadow_train_label"])
+        self.s_te_labels = np.array(self.attack_train_dataset[2]["shadow_test_label"])
+
+        self.t_tr_labels = np.array(self.attack_test_dataset[2]["target_train_label"])
+        self.t_te_labels = np.array(self.attack_test_dataset[2]["target_train_label"])
+
+        self.s_tr_mem_labels = np.ones(len(self.s_tr_labels))
+        self.s_te_mem_labels = np.zeros(len(self.s_te_labels))
+        self.t_tr_mem_labels = np.ones(len(self.t_tr_labels))
+        self.t_te_mem_labels = np.zeros(len(self.t_te_labels))
 
     def metric_based_attacks(self):
         """
@@ -301,6 +452,12 @@ class MetricBasedMIA(MembershipInferenceAttack):
             'modified entropy', -self.s_tr_m_entr, -self.s_te_m_entr, -self.t_tr_m_entr, -self.t_te_m_entr)
         self.print_result("modified entropy train", train_tuple3)
         self.print_result("modified entropy test", test_tuple3)
+        
+        train_tuple4, test_tuple4, test_results4 = self._mem_inf_thre(
+            'cross entropy loss', -self.shadow_train_celoss, -self.shadow_test_celoss, -self.target_train_celoss,
+            -self.target_test_celoss)
+        self.print_result("cross entropy loss train", train_tuple4)
+        self.print_result("cross entropy loss test", test_tuple4)
 
     def print_result(self, name, given_tuple):
         print("%s" % name, "acc:%.3f, precision:%.3f, recall:%.3f, f1:%.3f, auc:%.3f" % given_tuple)
@@ -383,6 +540,13 @@ class MetricBasedMIA(MembershipInferenceAttack):
             self.t_tr_outputs, self.t_tr_labels)
         self.t_te_m_entr = self._m_entr_comp(
             self.t_te_outputs, self.t_te_labels)
+        
+        # cross entropy loss
+
+        self.shadow_train_celoss = cross_entropy(self.s_tr_outputs, self.s_tr_labels)
+        self.shadow_test_celoss = cross_entropy(self.s_te_outputs, self.s_te_labels)
+        self.target_train_celoss = cross_entropy(self.t_tr_outputs, self.t_tr_labels)
+        self.target_test_celoss = cross_entropy(self.t_te_outputs, self.t_te_labels)
 
     def _log_value(self, probs, small_value=1e-30):
         return -np.log(np.maximum(probs, small_value))

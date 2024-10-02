@@ -78,7 +78,7 @@ class TrainTargetAdvReg(Trainer):
     as the reference
     """
 
-    def __init__(self, model, device="cuda:0", num_class=10, epochs=100, learning_rate=0.01, momentum=0.9, weight_decay=5e-4, log_path="./"):
+    def __init__(self, model, device="cuda:0", num_class=10, epochs=100, learning_rate=0.01, momentum=0.9, weight_decay=5e-4, alpha=1, log_path="./"):
 
         super().__init__()
 
@@ -93,6 +93,8 @@ class TrainTargetAdvReg(Trainer):
         self.attack_model = AttackAdvReg(self.num_class, self.num_class)
         self.model.to(self.device)
         self.attack_model.to(self.device)
+        
+        self.alpha=alpha
 
         self.optimizer = torch.optim.SGD(self.model.parameters(
         ), learning_rate, momentum=momentum, weight_decay=self.weight_decay)
@@ -166,7 +168,7 @@ class TrainTargetAdvReg(Trainer):
     def train_target_privately(self, train_loader):
         self.model.train()
         self.attack_model.eval()
-        alpha = 1
+        alpha = self.alpha
 
         for batch_idx, (data, target) in enumerate(train_loader):
             data, target = data.to(self.device), target.to(self.device)

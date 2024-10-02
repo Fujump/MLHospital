@@ -26,9 +26,11 @@ import numpy as np
 from io import RawIOBase
 from mlh.data_preprocessing.dataset_preprocessing import prepare_dataset, cut_dataset, prepare_inference_dataset
 from torchvision import datasets
+import torchvision
 from PIL import Image
 from tqdm import tqdm
 from mlh.data_preprocessing import configs
+from mlh.data_preprocessing.data_non_image import prepare_texas, prepare_purchase
 
 torch.manual_seed(0)
 
@@ -41,6 +43,23 @@ class GetDataLoader(object):
 
     def parse_dataset(self, dataset, train_transform, test_transform):
 
+        if dataset.lower() == "imagenet":
+            self.data_path = f'{self.data_path}/images/'
+            train_dataset = torchvision.datasets.ImageFolder(root=self.data_path + 'train', transform=train_transform)
+            test_dataset = torchvision.datasets.ImageFolder(root=self.data_path + 'val', transform=test_transform)
+            dataset = train_dataset + test_dataset
+            
+            return dataset
+        if dataset.lower() == "imagenet_r":
+            self.data_path = "/mnt/sharedata/ssd/common/datasets/imagenet-rendition/imagenet-r/"
+            dataset = torchvision.datasets.ImageFolder(root=self.data_path, transform=train_transform)
+            return dataset
+        if dataset.lower() == "purchase":
+            dataset = prepare_purchase(self.data_path)
+            return dataset
+        if dataset.lower() == "texas":
+            dataset = prepare_texas(self.data_path)
+            return dataset
         if dataset in configs.SUPPORTED_IMAGE_DATASETS:
             _loader = getattr(datasets, dataset)
             if dataset != "EMNIST":
@@ -83,6 +102,16 @@ class GetDataLoader(object):
         return dataset
 
     def get_data_transform(self, dataset, use_transform="simple"):
+        if dataset.lower() in ["imagenet", "imagenet_r"]:
+            transform_list = [transforms.Resize(256),transforms.CenterCrop(224)]
+            #transform_list = [transforms.RandomResizedCrop(224)]
+            if use_transform == "simple":
+                transform_list += [transforms.RandomHorizontalFlip()]
+                print("add simple data augmentation!")
+            transform_list+= [transforms.ToTensor(), transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])]
+            transform_ = transforms.Compose(transform_list)
+            return transform_
+        
         transform_list = [transforms.Resize(
             (self.input_shape[0], self.input_shape[0])), ]
 

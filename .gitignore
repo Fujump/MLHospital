@@ -160,8 +160,11 @@ cython_debug/
 #.idea/
 
 # Projects
+mlh/examples/*.sh
 scripts/
 datasets/
+*.out
+*.pth
 save*
 log*
 .DS_Store
