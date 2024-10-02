@@ -163,6 +163,7 @@ cython_debug/
 mlh/examples/*.sh
 scripts/
 datasets/
+adaptive_regs/
 figs/
 *.out
 *.pth
