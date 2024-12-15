@@ -31,8 +31,8 @@ from PIL import Image
 from tqdm import tqdm
 from mlh.data_preprocessing import configs
 from mlh.data_preprocessing.data_non_image import prepare_texas, prepare_purchase
-
-torch.manual_seed(0)
+from torch.utils.data import DataLoader, random_split
+# torch.manual_seed(0)
 
 
 class GetDataLoader(object):
@@ -249,7 +249,14 @@ class GetDataLoader(object):
 
         return target_train_sorted_loader, target_inference_sorted_loader, shadow_train_sorted_loader, shadow_inference_sorted_loader, start_index_target_inference, start_index_shadow_inference, target_inference_sorted, shadow_inference_sorted
 
-
+    def get_fine_tune_dataset(self, dataloader, args):
+        data_size = len(dataloader.dataset)
+        fine_tune_size = int(data_size * args.fine_tune_proportion)
+        train_subset, val_subset = random_split(dataloader.dataset, [fine_tune_size, data_size-fine_tune_size])
+        train_loader = DataLoader(train_subset, batch_size=128, shuffle=True)
+        print("fine-tuning dataset size: ", len(train_loader.dataset))
+        return train_loader
+        
 class GetDataLoaderPoison(object):
     def __init__(self, args):
         self.args = args

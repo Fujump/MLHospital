@@ -386,7 +386,6 @@ class MetricBasedMIA(MembershipInferenceAttack):
         shadow_train = self.attack_train_dataset[0]["shadow_train_data"]
         shadow_test = self.attack_train_dataset[0]["shadow_test_data"]
 
-        wb_dict = {}
 
         for name in names:
             train_tuple_x, test_tuple_x, _ = self._mem_inf_thre(
@@ -432,7 +431,7 @@ class MetricBasedMIA(MembershipInferenceAttack):
         a little bit redundant since we make the data into torch dataset,
         but reverse them back into the original data...
         """
-        self.parse_data_metric_based_attacks()
+        self.parse_data_metric_based_attacks() # get score for data
 
         train_tuple0, test_tuple0, test_results0 = self._mem_inf_via_corr()
         self.print_result("correct train", train_tuple0)
