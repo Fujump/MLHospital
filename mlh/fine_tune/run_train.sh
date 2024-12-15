@@ -6,10 +6,11 @@ python train_model.py \
     --num_class 10 \
     --training_type retrain \
     --mode shadow \
-    --epochs 120 \
+    --epochs 100 \
     --lr 0.01 \
     --seed 0 \
     --save_path /mnt/sharedata/ssd/users/zhanghx/experiments/mia/ft_defense/exp \
     retrain \
-    --epochs_ft 0 \
+    --epochs_ft 100 \
+    --learning_rate_ft 0.01 \
     --fine_tune_proportion 0.3

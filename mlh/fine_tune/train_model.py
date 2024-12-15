@@ -91,6 +91,8 @@ def parse_args():
     parser_n = subparsers.add_parser('retrain')
     parser_n.add_argument('--epochs_ft', type=int, default=20,
                         help= 'number of training epochs for fine-tuning')
+    parser_n.add_argument('--learning_rate_ft', type=float, default=0.01,
+                        help='learning rate for fine-tuning')
     parser_n.add_argument('--fine_tune_proportion', type=float, default=0.3,
                         help='proportion of the dataset used for fine-tuning')
     
@@ -311,10 +313,10 @@ if __name__ == "__main__":
         fine_tune_dataset = data_generator.get_fine_tune_dataset(train_loader, opt)
         
         total_evaluator = RetrainTargetNormal(
-            model=target_model, epochs=opt.epochs, epochs_ft=opt.epochs_ft, log_path=save_pth, output_save_path=output_save_path)
+            model=target_model, epochs=opt.epochs, epochs_ft=opt.epochs_ft, learning_rate=opt.lr,learning_rate_ft=opt.learning_rate_ft, log_path=save_pth, output_save_path=output_save_path)
         
         total_evaluator.train(train_loader, fine_tune_dataset, test_loader)
-        file_save_path = output_save_path + f"/{opt.fine_tune_proportion}"
+        file_save_path = output_save_path + f"/size_{opt.fine_tune_proportion}"
         if not os.path.exists(file_save_path):
             os.makedirs(file_save_path)
         print("Save model to: ", file_save_path)

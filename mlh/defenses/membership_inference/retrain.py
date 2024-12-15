@@ -20,6 +20,7 @@ class RetrainTargetNormal(Trainer):
         epochs=100,
         epochs_ft=0,
         learning_rate=0.01,
+        learning_rate_ft=0.01,
         momentum=0.9,
         weight_decay=5e-4,
         smooth_eps=0.8,
@@ -34,15 +35,21 @@ class RetrainTargetNormal(Trainer):
         self.num_class = num_class
         self.epochs = epochs
         self.epochs_ft = epochs_ft
+        self.learning_rate = learning_rate
+        self.learning_rate_ft = learning_rate_ft
+        self.momentum = momentum
+        self.weight_decay = weight_decay
         self.smooth_eps = smooth_eps
-
         self.model = self.model.to(self.device)
-
         self.optimizer = torch.optim.SGD(
             self.model.parameters(), learning_rate, momentum, weight_decay
         )
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        #     self.optimizer, T_max=self.epochs+self.epochs_ft
+        # )
+        
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            self.optimizer, T_max=self.epochs+self.epochs_ft
+            self.optimizer, T_max=self.epochs
         )
         
         self.criterion = nn.CrossEntropyLoss()
@@ -52,6 +59,15 @@ class RetrainTargetNormal(Trainer):
         # construct the save file path
         self.save_path = output_save_path
 
+    def scheduler_init(self, epochs, learning_rate, momentum, weight_decay):
+        self.optimizer = torch.optim.SGD(
+            self.model.parameters(), learning_rate, momentum, weight_decay)
+            
+        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.optimizer, T_max=self.epochs
+        )
+        return self.optimizer, self.scheduler
+        
     @staticmethod
     def _sample_weight_decay():
         # We selected the l2 regularization parameter from a range of 45 logarithmically spaced values between 10−6 and 105
@@ -111,7 +127,8 @@ class RetrainTargetNormal(Trainer):
             self.model.train()
             self.train_one_step(train_loader, test_loader, t_start, epoch)
             self.scheduler.step()
-        
+
+        self.scheduler_init(self.epochs_ft, self.learning_rate_ft, self.momentum, self.weight_decay) # init for fine_tuning
         
         ### fine-tune model
         for epoch in range(1, self.epochs_ft + 1):
