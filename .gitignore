@@ -161,6 +161,7 @@ cython_debug/
 
 # Projects
 mlh/examples/*.sh
+mlh/examples/plots
 scripts/
 datasets/
 adaptive_regs/

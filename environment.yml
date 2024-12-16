@@ -1,4 +1,4 @@
-name: ml-hospital
+name: PAST
 channels:
   - pytorch
   - nvidia
