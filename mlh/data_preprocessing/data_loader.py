@@ -60,7 +60,7 @@ class GetDataLoader(object):
         if dataset.lower() == "texas":
             dataset = prepare_texas(self.data_path)
             return dataset
-        if dataset in configs.SUPPORTED_IMAGE_DATASETS:
+        if dataset in configs.SUPPORTED_IMAGE_DATASETS: # cifar10, 100
             _loader = getattr(datasets, dataset)
             if dataset != "EMNIST":
                 train_dataset = _loader(root=self.data_path,
