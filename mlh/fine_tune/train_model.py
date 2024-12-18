@@ -15,6 +15,7 @@ from mlh.defenses.membership_inference.ConfidencePenalty import TrainTargetConfi
 from mlh.defenses.membership_inference.Dropout import TrainTargetDropout
 from mlh.defenses.membership_inference.PPB import TrainTargetPPB
 from mlh.defenses.membership_inference.retrain import RetrainTargetNormal
+from mlh.defenses.membership_inference.prune_tune import PruneTuneTargetNormal
 from mlh.models.models_non_image import Purchase,Texas
 from tqdm import tqdm
 import torch
@@ -39,7 +40,7 @@ def parse_args():
                         help='num of workers to use')
 
     parser.add_argument('--training_type', type=str, default="Normal",
-                        help='Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE, retrain')
+                        help='Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE, retrain, prunetune')
     
     subparsers = parser.add_subparsers(dest='training_type', required=False)
     # Parser for LabelSmoothing
@@ -94,6 +95,14 @@ def parse_args():
     parser_n.add_argument('--learning_rate_ft', type=float, default=0.01,
                         help='learning rate for fine-tuning')
     parser_n.add_argument('--fine_tune_proportion', type=float, default=0.3,
+                        help='proportion of the dataset used for fine-tuning')
+    # Parser for prune&tune
+    parser_o = subparsers.add_parser('prunetune')
+    parser_o.add_argument('--epochs_ft', type=int, default=20,
+                        help= 'number of training epochs for fine-tuning')
+    parser_o.add_argument('--learning_rate_ft', type=float, default=0.01,
+                        help='learning rate for fine-tuning')
+    parser_o.add_argument('--fine_tune_proportion', type=float, default=0.3,
                         help='proportion of the dataset used for fine-tuning')
     
     parser.add_argument('--mode', type=str, default="shadow",
@@ -322,7 +331,21 @@ if __name__ == "__main__":
         print("Save model to: ", file_save_path)
         
         torch.save(target_model,  file_save_path + f"/epoch_{opt.epochs}_ft_{opt.epochs_ft}.pth")
+    elif opt.training_type == "prunetune":
+        # split dataset for fine-tuning
+        fine_tune_dataset = data_generator.get_fine_tune_dataset(train_loader, opt)
         
+        total_evaluator = PruneTuneTargetNormal(
+            model=target_model, epochs=opt.epochs, epochs_ft=opt.epochs_ft, learning_rate=opt.lr,learning_rate_ft=opt.learning_rate_ft, log_path=save_pth, output_save_path=output_save_path)
+        
+        total_evaluator.train(train_loader, fine_tune_dataset, test_loader, dataset=opt.dataset, pruner=opt.pruner, global_pruning=opt.global_pruning)
+        file_save_path = output_save_path + f"/size_{opt.fine_tune_proportion}"
+        if not os.path.exists(file_save_path):
+            os.makedirs(file_save_path)
+        print("Save model to: ", file_save_path)
+        
+        torch.save(target_model,  file_save_path + f"/epoch_{opt.epochs}_ft_{opt.epochs_ft}.pth")    
+    
     else:
         raise ValueError(
             "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE, fine_tune")
