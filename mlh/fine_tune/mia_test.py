@@ -25,6 +25,9 @@ def parse_args():
     parser = argparse.ArgumentParser('argument for training')
     parser.add_argument('--training_type', type=str, default="retrain",
                         help='Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE, retrain')
+    parser.add_argument('--attack_fine_tune', action='store_true',
+                        help='whether chose fine-tuning dataset for attack')
+    
     parser.add_argument('--data_path', type=str, default='../datasets/',
                         help='data_path')
     parser.add_argument('--epochs', type=int, default=100)
@@ -110,8 +113,8 @@ if __name__ == "__main__":
     data_generator = GetDataLoader(args)
     target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = data_generator.get_data_supervised()    
     
-    target_path=f'{args.file_path}/{args.dataset}/{args.model}/target/{args.training_type}/{args.fine_tune_proportion}/epoch_{args.epochs}_ft_{args.epochs_ft}.pth'
-    shadow_path=f'{args.file_path}/{args.dataset}/{args.model}/shadow/{args.training_type}/{args.fine_tune_proportion}/epoch_{args.epochs}_ft_{args.epochs_ft}.pth'
+    target_path=f'{args.file_path}/{args.dataset}/{args.model}/target/{args.training_type}/size_{args.fine_tune_proportion}/epoch_{args.epochs}_ft_{args.epochs_ft}.pth'
+    shadow_path=f'{args.file_path}/{args.dataset}/{args.model}/shadow/{args.training_type}/size_{args.fine_tune_proportion}/epoch_{args.epochs}_ft_{args.epochs_ft}.pth'
     target_model=torch.load(target_path)
     shadow_model=torch.load(shadow_path)
     print(f'target_model:{target_path}')
@@ -147,7 +150,16 @@ if __name__ == "__main__":
             print(attack_dataset_rotation.attack_train_dataset.data.shape[1])
             print("Attack datasets are ready")
         else:
-            attack_dataset = AttackDataset(args, attack_type, target_model, shadow_model,
+            if (args.attack_fine_tune):
+                target_train = data_generator.get_fine_tune_dataset(target_train_loader, args)
+                target_test = data_generator.get_fine_tune_dataset(target_test_loader, args) # construct a balanced evaluation dataset
+                
+                shadow_train = data_generator.get_fine_tune_dataset(shadow_train_loader, args)
+                shadow_test = data_generator.get_fine_tune_dataset(shadow_test_loader, args) # construct a balanced evaluation dataset
+                attack_dataset = AttackDataset(args, attack_type, target_model, shadow_model,
+                                        target_train, target_test, shadow_train, shadow_test)
+            else:
+                attack_dataset = AttackDataset(args, attack_type, target_model, shadow_model,
                                         target_train_loader, target_test_loader, shadow_train_loader, shadow_test_loader)
 
 
