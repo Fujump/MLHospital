@@ -166,9 +166,12 @@ class TrainTargetNormal(Trainer):
                 logits_member = self.model(img)
                 loss_member = self.criterion(logits_member, label)
                 loss_member.backward(retain_graph=True)
+                member_grads = {name: m.weight.grad.clone() for name, m in self.model.named_modules() if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))}
                 
                 if (batch_n%100==1):
                     loss_gap = loss_member-loss_nonmember
+                    grad_diff = {name: member_grads[name] - nonmember_grads[name] for name in member_grads}
+                    torch.save(grad_diff, f"/data/home/huq/MLHospital/log_sensitivity_distribution/resnet18_cifar100/grad_diff_{e}_{batch_n}.pth")
                     # torch.save(loss_gap, f"/data/home/huq/MLHospital/log_distribution/loss_gap_mia/loss_gap_{e}_{batch_n}.pth")
                 
                 self.optimizer.step()
@@ -196,7 +199,7 @@ class TrainTargetNormal(Trainer):
             # if e % 10 == 0:
             #     torch.save(self.model.state_dict(), os.path.join(
             #         self.log_path, '%s_%d.pth' % (self.model_save_name, e)))
-            torch.save(self.model,f"/data/home/huq/MLHospital/log_distribution/loss_gap_mia/shadow_resnet18_{e}.pth")
+            # torch.save(self.model,f"/data/home/huq/MLHospital/log_distribution/loss_gap_mia/shadow_resnet18_{e}.pth")
         # torch.save(self.model.state_dict(), os.path.join(
         #     self.log_path, "%s.pth" % self.model_save_name))
 

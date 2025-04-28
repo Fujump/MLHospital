@@ -227,11 +227,60 @@ class TrainTargetNormal(Trainer):
                         if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))
                     }
                     
-                    # torch.save(loss_gap, f"/data/home/huq/MLHospital/log_distribution/loss_gap_grad_noabs/loss_gap_{e}_{batch_n}.pth")
+                    # torch.save(loss_gap, f"/data/home/huq/MLHospital/log_distribution/loss_gap_grad_noabs_150/loss_gap_{e}_{batch_n}.pth")
                     
                     grad_gaps_noabs = {name: (member_grads[name] - nonmember_grads[name]) for name in member_grads.keys()}
                     # torch.save(grad_gaps, f'/data/home/huq/MLHospital/log_distribution/grad_gaps_normal_noabs/grad_gaps_normal_noabs_{e}_{batch_n}.pth')
-
+                    
+                    # # Compute entropy and m-entropy
+                    # probs_member = F.softmax(logits_member, dim=1)
+                    # probs_nonmember = F.softmax(logits_nonmember, dim=1)
+                    
+                    # entropy_member = torch.sum(-probs_member * torch.log(probs_member + 1e-10), dim=1)
+                    # entropy_nonmember = torch.sum(-probs_nonmember * torch.log(probs_nonmember + 1e-10), dim=1)
+                    
+                    # reverse_probs_member = 1 - probs_member
+                    # reverse_probs_nonmember = 1 - probs_nonmember
+                    
+                    # modified_probs_member = probs_member.clone()
+                    # modified_probs_nonmember = probs_nonmember.clone()
+                    
+                    # modified_probs_member[range(label.size(0)), label] = reverse_probs_member[range(label.size(0)), label]
+                    # modified_probs_nonmember[range(nonmember_label.size(0)), nonmember_label] = reverse_probs_nonmember[range(nonmember_label.size(0)), nonmember_label]
+                    
+                    # log_probs_member = -torch.log(probs_member + 1e-10)
+                    # log_probs_nonmember = -torch.log(probs_nonmember + 1e-10)
+                    
+                    # log_reverse_probs_member = -torch.log(reverse_probs_member + 1e-10)
+                    # log_reverse_probs_nonmember = -torch.log(reverse_probs_nonmember + 1e-10)
+                    
+                    # modified_log_probs_member = log_reverse_probs_member.clone()
+                    # modified_log_probs_nonmember = log_reverse_probs_nonmember.clone()
+                    
+                    # modified_log_probs_member[range(label.size(0)), label] = log_probs_member[range(label.size(0)), label]
+                    # modified_log_probs_nonmember[range(nonmember_label.size(0)), nonmember_label] = log_probs_nonmember[range(nonmember_label.size(0)), nonmember_label]
+                    
+                    # m_entropy_member = torch.sum(modified_probs_member * modified_log_probs_member, dim=1)
+                    # m_entropy_nonmember = torch.sum(modified_probs_nonmember * modified_log_probs_nonmember, dim=1)
+                    
+                    # entropy_gap = entropy_member - entropy_nonmember
+                    # m_entropy_gap = m_entropy_member - m_entropy_nonmember
+                    
+                    # entropy_gap_grads = {
+                    #     name: torch.autograd.grad(entropy_gap.sum(), m.weight, retain_graph=True)[0]
+                    #     for name, m in self.model.named_modules()
+                    #     if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))
+                    # }
+                    
+                    # m_entropy_gap_grads = {
+                    #     name: torch.autograd.grad(m_entropy_gap.sum(), m.weight, retain_graph=True)[0]
+                    #     for name, m in self.model.named_modules()
+                    #     if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear))
+                    # }
+                    
+                    # torch.save(entropy_gap_grads, f"/data/home/huq/MLHospital/log_distribution/entropy_gap/entropy_gap_{e}_{batch_n}.pth")
+                    # torch.save(m_entropy_gap_grads, f"/data/home/huq/MLHospital/log_distribution/m_entropy_gap/m_entropy_gap_{e}_{batch_n}.pth")
+                
                 # if e>1 and test_acc<best_accuracy/2:
                 #     if (batch_n%100==1):
                 #         print("improve acc, no regularization")
@@ -244,7 +293,7 @@ class TrainTargetNormal(Trainer):
                 self.optimizer.step()
                 # self.check_model_parameters(self.model)
 
-            # torch.save(self.model,f"/data/home/huq/MLHospital/log_distribution/model_epochs_0.0/resnet18_{e}.pth")
+            # torch.save(self.model,f"/data/home/huq/MLHospital/log_distribution/model_epochs/pre_train/resnet18_{e}.pth")
             train_acc = self.eval(member_loader)
             test_acc = self.eval(test_loader)
             if test_acc>best_accuracy:

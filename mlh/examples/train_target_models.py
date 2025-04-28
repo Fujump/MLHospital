@@ -15,6 +15,8 @@ from mlh.defenses.membership_inference.L1 import TrainTargetL1
 from mlh.defenses.membership_inference.ConfidencePenalty import TrainTargetConfidencePenalty
 from mlh.defenses.membership_inference.Dropout import TrainTargetDropout
 from mlh.defenses.membership_inference.PPB import TrainTargetPPB
+from mlh.defenses.membership_inference.MIST import TrainTargetMIST
+from mlh.defenses.membership_inference.SELENA import TrainTargetSELENA
 from mlh.defenses.membership_inference.pruner import MIAImportance, GradGapPruner
 from models.models_non_image import Purchase,Texas
 from tqdm import tqdm
@@ -88,7 +90,15 @@ def parse_args():
     # Parser for PPB
     parser_m = subparsers.add_parser('PPB')
     parser_m.add_argument('--ppb_alpha', type=float, default=0.5, help='')
-    
+    # Parser for MIST
+    parser_n = subparsers.add_parser('MIST')
+    parser_n.add_argument('--mist_C',type=int, default=2)
+    parser_n.add_argument('--mist_lambda',type=float, default=1.0)
+    # Parser for SELENA
+    parser_o = subparsers.add_parser('SELENA')
+    parser_o.add_argument('--num_teachers', type=int, default=25, help='')
+    parser_o.add_argument('--num_excluded_teachers_per_sample', type=int, default=10, help='')
+    parser_o.add_argument('--teacher_epochs', type=int, default=100, help='')
     
     parser.add_argument('--mode', type=str, default="shadow",
                         help='target, shadow')
@@ -125,7 +135,7 @@ def parse_args():
     parser.add_argument('--input-shape', type=str, default="32,32,3",
                         help='comma delimited input shape input')
     parser.add_argument('--log_path', type=str,
-                        default='./save_baseline', help='data_path')
+                        default='./save', help='data_path')
 
     args = parser.parse_args()
     
@@ -210,7 +220,22 @@ if __name__ == "__main__":
             model=target_model, epochs=opt.epochs, log_path=save_pth, num_class=opt.num_class, weight_decay=opt.weight_l2)
         total_evaluator.train(train_loader, inference_loader, test_loader)
         # pass
+    elif opt.training_type == "SELENA":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.num_teachers}/{save_pth_after_last_slash}'
+
+        total_evaluator = TrainTargetSELENA(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, num_teachers=opt.num_teachers, num_excluded_teachers_per_sample=opt.num_excluded_teachers_per_sample, teacher_epochs=opt.teacher_epochs)
+        total_evaluator.train(train_loader, test_loader)
         
+    elif opt.training_type == "MIST":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.mist_lambda}/{save_pth_after_last_slash}'
+
+        total_evaluator = TrainTargetMIST(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, num_submodels=opt.mist_C, xdiff_lambda=opt.mist_lambda, weight_decay=opt.weight_l2)
+        total_evaluator.train(train_loader, test_loader)
+    
     elif opt.training_type == "PPB":
         save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
         save_pth = f'{save_pth_before_last_slash}_{opt.ppb_alpha}/{save_pth_after_last_slash}'

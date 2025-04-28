@@ -8,7 +8,7 @@ from mlh.defenses.membership_inference.DPSGD import TrainTargetDP
 from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmoothing
 from mlh.defenses.membership_inference.MixupMMD import TrainTargetMixupMMD
 from mlh.defenses.membership_inference.PATE import TrainTargetPATE
-from mlh.defenses.membership_inference.Normal_test import TrainTargetNormal
+from mlh.defenses.membership_inference.Normal import TrainTargetNormal
 from mlh.defenses.membership_inference.RelaxLoss import TrainTargetRelaxLoss
 from mlh.defenses.membership_inference.CCL import TrainTargetCCL
 from mlh.defenses.membership_inference.L1 import TrainTargetL1
@@ -108,6 +108,11 @@ def parse_args():
                         help='norm, tylor, hessian, mia')
     parser.add_argument('--global_pruning', type=str, default="f",
                         help='t(true), f(false)')
+    parser.add_argument('--split-ratio', type=float, default=0.5, help='ratio to split the dataset for finetuning and attack')
+    parser.add_argument('--ft_epochs', type=int, default=20, help='number of finetuning epochs')
+    parser.add_argument('--ft_lr', type=float, default=0.01, help='finetuning learning rate')
+    parser.add_argument('--pruning_ratio', type=float, default=0.5, help='pruning ratio')
+    
 
     # model dataset
     parser.add_argument('--model', type=str, default='resnet18')
@@ -125,7 +130,7 @@ def parse_args():
     parser.add_argument('--input-shape', type=str, default="32,32,3",
                         help='comma delimited input shape input')
     parser.add_argument('--log_path', type=str,
-                        default='./save', help='data_path')
+                        default='./save_baseline', help='data_path')
 
     args = parser.parse_args()
     
@@ -320,78 +325,79 @@ if __name__ == "__main__":
         raise ValueError(
             "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
     
-    target_model=torch.load(f"/data/home/huq/MLHospital/mlh/examples/save_baseline/{opt.dataset}/Normal/{opt.mode}/{opt.model}_model.pth")
     model = target_model
-    if opt.training_type == "Reg":
+    # if opt.training_type == "Reg":
     # if opt.prune=="t":
-        if opt.dataset in ["CIFAR10","CIFAR100"]:
-            example_inputs = torch.randn(1, 3, 32, 32).to('cuda')
-        elif opt.dataset=="texas":
-            example_inputs = torch.randn(1, 6169).to('cuda')
-        elif opt.dataset=="purchase":
-            example_inputs = torch.randn(1, 600).to('cuda')
-        elif (opt.dataset=="imagenet") or (opt.dataset=="imagenet_r"):
-            example_inputs = torch.randn(1, 3, 224, 224).to('cuda')
+    if opt.dataset in ["CIFAR10","CIFAR100"]:
+        example_inputs = torch.randn(1, 3, 32, 32).to('cuda')
+    elif opt.dataset=="texas":
+        example_inputs = torch.randn(1, 6169).to('cuda')
+    elif opt.dataset=="purchase":
+        example_inputs = torch.randn(1, 600).to('cuda')
+    elif (opt.dataset=="imagenet") or (opt.dataset=="imagenet_r"):
+        example_inputs = torch.randn(1, 3, 224, 224).to('cuda')
 
-        # 1. Importance criterion
-        if opt.pruner=="norm":
-            imp = tp.importance.GroupNormImportance(p=2) # or GroupTaylorImportance(), GroupHessianImportance(), etc.
-        elif opt.pruner=="tylor":
-            imp = tp.importance.GroupTaylorImportance()
-        elif opt.pruner=="hessian":
-            imp = tp.importance.GroupHessianImportance()
-        elif opt.pruner=="mia":
-            # imp = MIAImportance()
-            imp = tp.importance.GroupNormImportance(p=1)
+    # 1. Importance criterion
+    if opt.pruner=="norm":
+        imp = tp.importance.GroupNormImportance(p=2) # or GroupTaylorImportance(), GroupHessianImportance(), etc.
+    elif opt.pruner=="tylor":
+        imp = tp.importance.GroupTaylorImportance()
+    elif opt.pruner=="hessian":
+        imp = tp.importance.GroupHessianImportance()
+    elif opt.pruner=="mia":
+        # imp = MIAImportance()
+        imp = tp.importance.GroupNormImportance(p=1)
 
-        # 2. Initialize a pruner with the model and the importance criterion
-        ignored_layers = []
-        for m in model.modules():
-            if isinstance(m, torch.nn.Linear) and m.out_features == 10:
-                ignored_layers.append(m) # DO NOT prune the final classifier!
+    # 2. Initialize a pruner with the model and the importance criterion
+    ignored_layers = []
+    for m in model.modules():
+        if isinstance(m, torch.nn.Linear) and m.out_features == 10:
+            ignored_layers.append(m) # DO NOT prune the final classifier!
 
-        pruner = GradGapPruner( # We can always choose MetaPruner if sparse training is not required.
-            model,
-            example_inputs,
-            importance=imp,
-            global_pruning=True if opt.global_pruning=="t" else False,
-            pruning_ratio=0.5, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
-            # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
-            ignored_layers=ignored_layers,
-        )
+    pruner = tp.MetaPruner( # We can always choose MetaPruner if sparse training is not required.
+        model,
+        example_inputs,
+        importance=imp,
+        global_pruning=True if opt.global_pruning=="t" else False,
+        pruning_ratio=opt.pruning_ratio, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
+        # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
+        ignored_layers=ignored_layers,
+    )
 
-        # torch.save(target_model,"/data/home/huq/MLHospital/mlh/examples/test_model.pth")
-        # if opt.pruner=="mia":
-        total_evaluator = TrainTargetNormal(
-            model=target_model, epochs=opt.reg_epoch, log_path=save_pth,learning_rate=opt.lr)
-        total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner,args=opt)
-        
-        # # 3. Prune & finetune the model
-        # base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        # pruner.step()
-        # macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        # print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
-        # # finetune the pruned model here
-        # #####################
-        # from torch.utils.data import DataLoader, random_split
-        # # 设置随机种子
-        # torch.manual_seed(42)
-        # # 获取数据集和数据集的长度
-        # dataset = train_loader.dataset
-        # dataset_len = len(dataset)
+    # # torch.save(target_model,"/data/home/huq/MLHospital/mlh/examples/test_model.pth")
+    # # if opt.pruner=="mia":
+    # total_evaluator = TrainTargetNormal(
+    #     model=target_model, epochs=opt.reg_epoch, log_path=save_pth,learning_rate=opt.lr)
+    # total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner,args=opt)
+    
+    # # 3. Prune & finetune the model
+    base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
+    pruner.step()
+    macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
+    print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
+    # # finetune the pruned model here
+    # #####################
+    from torch.utils.data import DataLoader, random_split
+    # 设置随机种子
+    torch.manual_seed(42)
+    # 获取数据集和数据集的长度
+    dataset = train_loader.dataset
+    dataset_len = len(dataset)
 
-        # # 将数据集平均分成两个
-        # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
+    # 将数据集平均分成两个
+    subset1_len = int(dataset_len * opt.split_ratio)
+    subset2_len = dataset_len - subset1_len
+    subset1, subset2 = random_split(dataset, [subset1_len, subset2_len])
 
-        # # 为每个子集创建新的 DataLoader
-        # train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
-        # train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
-        # #####################
-        # total_evaluator = TrainTargetNormal(
-        #     model=target_model, epochs=100, log_path=save_pth)
-        # total_evaluator.train(train_loader_finetune, test_loader)
-        # # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
-        # # finetune的epoch如何设置，是否要保持总epoch不变？
+    # 为每个子集创建新的 DataLoader
+    train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
+    train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
+    # #####################
+    total_evaluator = TrainTargetNormal(
+        model=target_model, epochs=opt.ft_epochs, learning_rate=opt.ft_lr, log_path=save_pth)
+    total_evaluator.train(train_loader_finetune, inference_loader, test_loader)
+    # # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
+    # # finetune的epoch如何设置，是否要保持总epoch不变？
     
     torch.save(model.state_dict(),
                os.path.join(save_pth, f"{opt.model}.pth"))
@@ -399,4 +405,5 @@ if __name__ == "__main__":
     model.zero_grad() # clear gradients to avoid a large file size
     torch.save(model,
                os.path.join(save_pth, f"{opt.model}_model.pth")) # !! no .state_dict for saving
+    
     print("Finish Training")
