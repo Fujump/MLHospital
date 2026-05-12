@@ -135,13 +135,21 @@ class TrainTargetOlympus(Trainer):
         self.attack_model.to(self.device)
         self.obfuscator.to(self.device)
 
-        self.optimizer_adv = torch.optim.SGD(self.attack_model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer_adv = torch.optim.SGD(
+            self.attack_model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler_adv = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_adv, T_max=self.epochs)
 
-        self.optimizer_obfs = torch.optim.SGD(self.obfuscator.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer_obfs = torch.optim.SGD(
+            self.obfuscator.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler_obfs = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_obfs, T_max=self.epochs)
 

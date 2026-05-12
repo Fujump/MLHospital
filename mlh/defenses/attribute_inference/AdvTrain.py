@@ -102,18 +102,30 @@ class TrainTargetAdvTrain(Trainer):
         self.target_model_C.to(self.device)
         self.attack_model.to(self.device)
 
-        self.optimizer_E = torch.optim.SGD(self.target_model_E.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=self.weight_decay)
+        self.optimizer_E = torch.optim.SGD(
+            self.target_model_E.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=self.weight_decay,
+        )
         self.scheduler_E = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_E, T_max=self.epochs)
 
-        self.optimizer_C = torch.optim.SGD(self.target_model_C.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=self.weight_decay)
+        self.optimizer_C = torch.optim.SGD(
+            self.target_model_C.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=self.weight_decay,
+        )
         self.scheduler_C = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_C, T_max=self.epochs)
 
-        self.optimizer_adv = torch.optim.SGD(self.attack_model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer_adv = torch.optim.SGD(
+            self.attack_model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler_adv = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_adv, T_max=self.epochs)
 

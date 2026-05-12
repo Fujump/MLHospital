@@ -366,8 +366,12 @@ class AIA_attack(AttributeInferenceAttack):
         self.target_model_E.to(self.device)
         self.attack_model.to(self.device)
 
-        self.optimizer_adv = torch.optim.SGD(self.attack_model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer_adv = torch.optim.SGD(
+            self.attack_model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler_adv = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_adv, T_max=self.epochs)
 

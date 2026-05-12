@@ -2,7 +2,6 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
-import torch_pruning as tp
 from mlh.defenses.membership_inference.AdvReg import TrainTargetAdvReg
 from mlh.defenses.membership_inference.DPSGD import TrainTargetDP
 from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmoothing
@@ -11,8 +10,8 @@ from mlh.defenses.membership_inference.PATE import TrainTargetPATE
 from mlh.defenses.membership_inference.Normal import TrainTargetNormal
 from mlh.defenses.membership_inference.RelaxLoss import TrainTargetRelaxLoss
 from mlh.defenses.membership_inference.CCL import TrainTargetCCL
-from mlh.defenses.membership_inference.pruner import MIAImportance, GradGapPruner
-from models.models_non_image import Purchase,Texas
+from mlh.defenses.membership_inference.pruner import PAST
+from mlh.models.models_non_image import Purchase,Texas
 from tqdm import tqdm
 import torch
 import torch.nn as nn
@@ -24,9 +23,11 @@ import torchvision.transforms as transforms
 import argparse
 import numpy as np
 import torch.optim as optim
-torch.manual_seed(0)
-np.random.seed(0)
-torch.set_num_threads(1)
+
+def set_seed(seed):
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.set_num_threads(1)
 
 
 def parse_args():
@@ -36,6 +37,13 @@ def parse_args():
                         help='batch_size')
     parser.add_argument('--num-workers', type=int, default=10,
                         help='num of workers to use')
+    parser.add_argument('--training_type', dest='training_type_arg', default=None,
+                        help='legacy training type argument; prefer the subcommand form')
+    parser.add_argument('--reg_weight', type=float, default=1e-5, help='')
+    parser.add_argument('--reg_alpha', type=float, default=4, help='')
+    parser.add_argument('--reg_epoch', type=int, default=50, help='')
+    parser.add_argument('--reg_clamp', type=int, default=10000, help='')
+    parser.add_argument('--reg_norm', type=str, default="l1", help='')
 
     # parser.add_argument('--training_type', type=str, default="Normal",
     #                     help='Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE')
@@ -62,8 +70,8 @@ def parse_args():
     # Parser for CCL
     parser_g = subparsers.add_parser('CCL')
     parser_g.add_argument('--ccl_alpha', type=float, default=0.5, help='')
-    # Parser for Reg
-    parser_h = subparsers.add_parser('Reg')
+    # Parser for PAST
+    parser_h = subparsers.add_parser('PAST', aliases=['past', 'Reg'])
     parser_h.add_argument('--reg_weight', type=float, default=1e-5, help='')
     parser_h.add_argument('--reg_alpha', type=float, default=4, help='')
     parser_h.add_argument('--reg_epoch', type=int, default=50, help='')
@@ -79,6 +87,8 @@ def parse_args():
 
     parser.add_argument('--epochs', type=int, default=100,
                         help='number of training epochs')
+    parser.add_argument('--weight_l2', type=float, default=5e-04, help='')
+    parser.add_argument('--lr', type=float, default=0.01, help='')
     parser.add_argument('--gpu', type=int, default=0,
                         help='gpu index used for training')
     
@@ -107,16 +117,20 @@ def parse_args():
                         help='comma delimited input shape input')
     parser.add_argument('--log_path', type=str,
                         default='./save', help='data_path')
+    parser.add_argument('--seed', type=int, default=0, help='random seed')
 
     args = parser.parse_args()
     
+    args.training_type = args.training_type or args.training_type_arg
     if args.training_type is None:
         args.training_type = 'Normal'
+    elif args.training_type in ["past", "Reg"]:
+        args.training_type = "PAST"
+    del args.training_type_arg
 
     args.input_shape = [int(item) for item in args.input_shape.split(',')]
     # args.device = 'cuda:%d' % args.gpu if torch.cuda.is_available() else 'cpu'
     args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
     return args
 
 
@@ -138,6 +152,7 @@ def get_target_model(name="resnet18", num_classes=10):
 
     else:
         raise ValueError("Model not implemented yet :P")
+    print("model name:", name)
     return model
 
 
@@ -161,8 +176,9 @@ def evaluate(args, model, dataloader):
 if __name__ == "__main__":
 
     opt = parse_args()
+    set_seed(opt.seed)
     s = GetDataLoader(opt)
-    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised()
+    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised(batch_size=128)
 
     if opt.mode == "target":
         train_loader, inference_loader, test_loader = target_train_loader, target_inference_loader, target_test_loader,
@@ -171,172 +187,88 @@ if __name__ == "__main__":
     else:
         raise ValueError("opt.mode should be target or shadow")
 
-    # target_model = nn.DataParallel(get_target_model(name=opt.model, num_classes=opt.num_class)).cuda()
-    if opt.mode=='target':
-        target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/target/{opt.model}_model.pth')
-    elif opt.mode=='shadow':
-        target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/shadow/{opt.model}_model.pth')
+    # if opt.mode=='target':
+    #     target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/target/{opt.model}_model.pth')
+    # elif opt.mode=='shadow':
+    #     target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/shadow/{opt.model}_model.pth')
     
-
-
-    # if opt.prune=="t":
-    #     save_pth = f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned/{opt.mode}' if opt.global_pruning=="f" else f'{opt.log_path}/{opt.dataset}/{opt.training_type}_{opt.pruner}_pruned_global/{opt.mode}'
-    # else:
+    target_model = get_target_model(name=opt.model, num_classes=opt.num_class).cuda()
+     
     save_pth = f'{opt.log_path}/{opt.dataset}/{opt.pre_train}_L1/{opt.mode}'
 
-    # if opt.training_type == "Normal" or opt.training_type == "Reg":
-    #     if opt.training_type == "Reg":
-    #         save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #         if opt.reg_norm=="l1":
-    #             save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}_{opt.reg_alpha}/{save_pth_after_last_slash}'
-    #         else:
-    #             save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}-{opt.reg_norm}_{opt.reg_alpha}/{save_pth_after_last_slash}'
-            
-    #     total_evaluator = TrainTargetNormal(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, test_loader)
-    #     # pass
+    if opt.training_type == "PAST":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        if opt.reg_norm=="l1":
+            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}_{opt.reg_alpha}/{save_pth_after_last_slash}'
+        else:
+            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}-{opt.reg_norm}_{opt.reg_alpha}/{save_pth_after_last_slash}'
         
-    # elif opt.training_type == "CCL":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.ccl_alpha}/{save_pth_after_last_slash}'
-
-    #     total_evaluator = TrainTargetCCL(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.ccl_alpha, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, test_loader)
+        total_evaluator = TrainTargetNormal(
+        model=target_model, epochs=opt.epochs, learning_rate=opt.lr, log_path=save_pth, num_class=opt.num_class, weight_decay=opt.weight_l2)
+        total_evaluator.train(train_loader, inference_loader, test_loader)
         
-    # elif opt.training_type == "RelaxLoss":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.relax_alpha}/{save_pth_after_last_slash}'
+    elif opt.training_type == "Normal":
+        total_evaluator = TrainTargetNormal(
+            model=target_model, epochs=opt.epochs, learning_rate=opt.lr, log_path=save_pth, num_class=opt.num_class, weight_decay=opt.weight_l2)
+        total_evaluator.train(train_loader, inference_loader, test_loader)
+        
+    elif opt.training_type == "CCL":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.ccl_alpha}/{save_pth_after_last_slash}'
 
-    #     total_evaluator = TrainTargetRelaxLoss(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.relax_alpha, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, test_loader)
+        total_evaluator = TrainTargetCCL(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.ccl_alpha, num_class=opt.num_class)
+        total_evaluator.train(train_loader, test_loader)
+        
+    elif opt.training_type == "RelaxLoss":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.relax_alpha}/{save_pth_after_last_slash}'
 
-    # elif opt.training_type == "LabelSmoothing":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.smooth_eps}/{save_pth_after_last_slash}'
+        total_evaluator = TrainTargetRelaxLoss(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.relax_alpha, num_class=opt.num_class)
+        total_evaluator.train(train_loader, test_loader)
 
-    #     total_evaluator = TrainTargetLabelSmoothing(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, smooth_eps=opt.smooth_eps, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, test_loader)
+    elif opt.training_type == "LabelSmoothing":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.smooth_eps}/{save_pth_after_last_slash}'
 
-    # elif opt.training_type == "AdvReg":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.adv_alpha}/{save_pth_after_last_slash}'
+        total_evaluator = TrainTargetLabelSmoothing(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, smooth_eps=opt.smooth_eps, num_class=opt.num_class)
+        total_evaluator.train(train_loader, test_loader)
 
-    #     total_evaluator = TrainTargetAdvReg(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.adv_alpha, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, inference_loader, test_loader)
-    #     model = total_evaluator.model
+    elif opt.training_type == "AdvReg":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.adv_alpha}/{save_pth_after_last_slash}'
 
-    # elif opt.training_type == "DP":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.dp_delta}/{save_pth_after_last_slash}'
+        total_evaluator = TrainTargetAdvReg(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.adv_alpha, num_class=opt.num_class)
+        total_evaluator.train(train_loader, inference_loader, test_loader)
+        # model = total_evaluator.model
 
-    #     total_evaluator = TrainTargetDP(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, delta=opt.dp_delta, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, test_loader)
+    elif opt.training_type == "DP":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.dp_delta}/{save_pth_after_last_slash}'
 
-    # elif opt.training_type == "MixupMMD":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.mmd_lambda}/{save_pth_after_last_slash}'
+        total_evaluator = TrainTargetDP(
+            model=target_model, epochs=opt.epochs, log_path=save_pth, delta=opt.dp_delta, num_class=opt.num_class)
+        total_evaluator.train(train_loader, test_loader)
 
-    #     target_train_sorted_loader, target_inference_sorted_loader, shadow_train_sorted_loader, shadow_inference_sorted_loader, start_index_target_inference, start_index_shadow_inference, target_inference_sorted, shadow_inference_sorted = s.get_sorted_data_mixup_mmd()
-    #     if opt.mode == "target":
-    #         train_loader_ordered, inference_loader_ordered, starting_index, inference_sorted = target_train_sorted_loader, target_inference_sorted_loader, start_index_target_inference, target_inference_sorted
+    elif opt.training_type == "MixupMMD":
+        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
+        save_pth = f'{save_pth_before_last_slash}_{opt.mmd_lambda}/{save_pth_after_last_slash}'
 
-    #     elif opt.mode == "shadow":
-    #         train_loader_ordered, inference_loader_ordered, starting_index, inference_sorted = shadow_train_sorted_loader, shadow_inference_sorted_loader, start_index_shadow_inference, shadow_inference_sorted
-
-    #     total_evaluator = TrainTargetMixupMMD(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, mixup_alpha=opt.mixup_alpha, mmd_loss_lambda=opt.mmd_lambda, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, train_loader_ordered,
-    #                           inference_loader_ordered, test_loader, starting_index, inference_sorted)
-
-    # elif opt.training_type == "PATE":
-    #     save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-    #     save_pth = f'{save_pth_before_last_slash}_{opt.pate_epsilon}/{save_pth_after_last_slash}'
-
-    #     total_evaluator = TrainTargetPATE(
-    #         model=target_model, epochs=opt.epochs, log_path=save_pth, pate_epsilon=opt.pate_epsilon, num_class=opt.num_class)
-    #     total_evaluator.train(train_loader, inference_loader, test_loader)
-
-    # else:
-    #     raise ValueError(
-    #         "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
+    else:
+        raise ValueError(
+            "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
     
     model = target_model
-    # if opt.training_type == "Reg":
-    # if opt.prune=="t":
-    if opt.dataset in ["CIFAR10","CIFAR100"]:
-        example_inputs = torch.randn(1, 3, 32, 32).to('cuda')
-    elif opt.dataset=="texas":
-        example_inputs = torch.randn(1, 6169).to('cuda')
-    elif opt.dataset=="purchase":
-        example_inputs = torch.randn(1, 600).to('cuda')
-    elif (opt.dataset=="imagenet") or (opt.dataset=="imagenet_r"):
-        example_inputs = torch.randn(1, 3, 224, 224).to('cuda')
 
-    # 1. Importance criterion
-    if opt.pruner=="norm":
-        imp = tp.importance.GroupNormImportance(p=2) # or GroupTaylorImportance(), GroupHessianImportance(), etc.
-    elif opt.pruner=="tylor":
-        imp = tp.importance.GroupTaylorImportance()
-    elif opt.pruner=="hessian":
-        imp = tp.importance.GroupHessianImportance()
-    elif opt.pruner=="mia":
-        # imp = MIAImportance()
-        imp = tp.importance.GroupNormImportance(p=1)
-
-    # 2. Initialize a pruner with the model and the importance criterion
-    ignored_layers = []
-    for m in model.modules():
-        if isinstance(m, torch.nn.Linear) and m.out_features == 10:
-            ignored_layers.append(m) # DO NOT prune the final classifier!
-
-    pruner = GradGapPruner( # We can always choose MetaPruner if sparse training is not required.
-        model,
-        example_inputs,
-        importance=imp,
-        global_pruning=True if opt.global_pruning=="t" else False,
-        pruning_ratio=0.5, # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
-        # pruning_ratio_dict = {model.conv1: 0.2, model.layer2: 0.8}, # customized pruning ratios for layers or blocks
-        ignored_layers=ignored_layers,
-    )
-
-    # torch.save(target_model,"/data/home/huq/MLHospital/mlh/examples/test_model.pth")
-    # if opt.pruner=="mia":
-    total_evaluator = TrainTargetNormal(
-        model=target_model, epochs=opt.reg_epoch, log_path=save_pth,learning_rate=0.01)
-    total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner,args=opt)
+    if opt.training_type == "PAST":
+        pruner = PAST()
+        total_evaluator = TrainTargetNormal(
+            model=target_model, epochs=opt.reg_epoch, learning_rate=opt.lr, weight_decay=0, log_path=save_pth)
         
-        # # 3. Prune & finetune the model
-        # base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        # pruner.step()
-        # macs, nparams = tp.utils.count_ops_and_params(model, example_inputs)
-        # print(f"MACs: {base_macs/1e9} G -> {macs/1e9} G, #Params: {base_nparams/1e6} M -> {nparams/1e6} M")
-        # # finetune the pruned model here
-        # #####################
-        # from torch.utils.data import DataLoader, random_split
-        # # 设置随机种子
-        # torch.manual_seed(42)
-        # # 获取数据集和数据集的长度
-        # dataset = train_loader.dataset
-        # dataset_len = len(dataset)
-
-        # # 将数据集平均分成两个
-        # subset1, subset2 = random_split(dataset, [dataset_len // 2, dataset_len - dataset_len // 2])
-
-        # # 为每个子集创建新的 DataLoader
-        # train_loader_finetune = DataLoader(subset1, batch_size=128, shuffle=True, num_workers=2)
-        # train_loader_attack = DataLoader(subset2, batch_size=128, shuffle=True, num_workers=2)
-        # #####################
-        # total_evaluator = TrainTargetNormal(
-        #     model=target_model, epochs=100, log_path=save_pth)
-        # total_evaluator.train(train_loader_finetune, test_loader)
-        # # TODO:如果考虑防御模型，finetune时用对应的防御方法？shadow不用做任何操作？
-        # # finetune的epoch如何设置，是否要保持总epoch不变？
+        total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner,args=opt)
     
     torch.save(model.state_dict(),
                os.path.join(save_pth, f"{opt.model}.pth"))

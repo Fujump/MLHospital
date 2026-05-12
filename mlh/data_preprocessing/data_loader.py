@@ -32,7 +32,7 @@ from tqdm import tqdm
 from mlh.data_preprocessing import configs
 from mlh.data_preprocessing.data_non_image import prepare_texas, prepare_purchase
 
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 
 class GetDataLoader(object):

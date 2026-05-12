@@ -46,8 +46,12 @@ class TrainTargetDP(Trainer):
         self.delta = delta
         self.model = ModuleValidator.fix(self.model)
         self.model = self.model.to(self.device)
-        self.optimizer = torch.optim.SGD(self.model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer = torch.optim.SGD(
+            self.model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=self.epochs)
 

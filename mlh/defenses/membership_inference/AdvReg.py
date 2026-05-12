@@ -96,13 +96,21 @@ class TrainTargetAdvReg(Trainer):
         
         self.alpha=alpha
 
-        self.optimizer = torch.optim.SGD(self.model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=self.weight_decay)
+        self.optimizer = torch.optim.SGD(
+            self.model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=self.weight_decay,
+        )
         self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer, T_max=self.epochs)
 
-        self.optimizer_adv = torch.optim.SGD(self.attack_model.parameters(
-        ), learning_rate, momentum=momentum, weight_decay=weight_decay)
+        self.optimizer_adv = torch.optim.SGD(
+            self.attack_model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         self.scheduler_adv = torch.optim.lr_scheduler.CosineAnnealingLR(
             self.optimizer_adv, T_max=self.epochs)
 

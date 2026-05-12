@@ -71,7 +71,11 @@ class TrainTargetCCL(Trainer):
         self.model = self.model.to(self.device)
 
         self.optimizer = torch.optim.SGD(
-            self.model.parameters(), learning_rate, momentum, weight_decay)
+            self.model.parameters(),
+            lr=learning_rate,
+            momentum=momentum,
+            weight_decay=weight_decay,
+        )
         # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
         #     self.optimizer, T_max=self.epochs)
         self.scheduler = get_scheduler(scheduler_name = 'multi_step2', optimizer =self.optimizer, t_max=self.epochs)
