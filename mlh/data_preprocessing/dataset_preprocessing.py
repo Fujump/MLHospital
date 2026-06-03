@@ -72,7 +72,7 @@ def prepare_dataset(dataset, select_num=None):
     if select_num != None and select_num < each_length:
         each_length = select_num
     # print(dataset.category_label_index_dict)
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
     target_train, target_inference, target_test, shadow_train, shadow_inference, shadow_test, _ = torch.utils.data.random_split(
         dataset, [each_length, each_length, each_length, each_length, each_length, each_length, len(dataset)-(each_length*6)])
     return target_train, target_inference, target_test, shadow_train, shadow_inference, shadow_test
@@ -95,7 +95,7 @@ def split_dataset(dataset, parts=3, part_size=None):
     # if we specify a number, we use the number to split data
     if part_size != None and part_size < each_length:
         each_length = part_size
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
     train_, inference_, test_, _ = torch.utils.data.random_split(dataset,
                                                                  [each_length, each_length, each_length, len(dataset)-(each_length*parts)])
     return train_, inference_, test_
@@ -103,7 +103,7 @@ def split_dataset(dataset, parts=3, part_size=None):
 
 def prepare_inference_dataset(dataset):
     each_length = len(dataset) // 2
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
     inference_train, inference_test, _ = torch.utils.data.random_split(
         dataset, [each_length, each_length, len(dataset)-(each_length*2)]
     )
@@ -111,10 +111,8 @@ def prepare_inference_dataset(dataset):
 
 
 def cut_dataset(dataset, num):
-
     length = len(dataset)
-
-    torch.manual_seed(0)
+    # torch.manual_seed(0)
     selected_dataset, _ = torch.utils.data.random_split(
         dataset, [num, length - num])
     return selected_dataset

@@ -29,7 +29,7 @@ import PIL.Image as Image
 import os
 import torch
 import torch.nn as nn
-torch.manual_seed(0)
+# torch.manual_seed(0)
 
 # take CelebA as an example
 

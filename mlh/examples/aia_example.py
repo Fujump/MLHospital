@@ -34,7 +34,7 @@ from mlh.defenses.attribute_inference.AdvTrain import TrainTargetAdvTrain
 from mlh.defenses.attribute_inference.Olympus import TrainTargetOlympus, AutoEncoder
 from mlh.defenses.attribute_inference.AttriGuard import TrainTargetAttriGuard
 from runx.logx import logx
-torch.manual_seed(0)
+# torch.manual_seed(0)
 np.random.seed(0)
 torch.set_num_threads(1)
 

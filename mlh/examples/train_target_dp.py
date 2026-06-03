@@ -2,7 +2,6 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
-import timm
 from mlh.defenses.membership_inference.AdvReg import TrainTargetAdvReg
 from mlh.defenses.membership_inference.DPSGD import TrainTargetDP
 from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmoothing
@@ -56,8 +55,11 @@ def parse_args():
     parser_b = subparsers.add_parser('AdvReg')
     parser_b.add_argument('--adv_alpha', type=float, default=1, help='')
     # Parser for DP
-    parser_c = subparsers.add_parser('DP')
-    parser_c.add_argument('--dp_delta', type=float, default=1e-5, help='')
+    parser_c = subparsers.add_parser('DP', aliases=['dp'])
+    parser_c.add_argument('--dp_epsilon', type=float, default=100, help='target epsilon for DP-SGD')
+    parser_c.add_argument('--dp_delta', type=float, default=1e-5, help='target delta for DP-SGD')
+    parser_c.add_argument('--dp_grad_norm', type=float, default=1, help='max per-sample gradient norm for DP-SGD')
+    
     # Parser for MixupMMD
     parser_d = subparsers.add_parser('MixupMMD')
     parser_d.add_argument('--mixup_alpha', type=float, default=1.0, help='')
@@ -125,6 +127,8 @@ def parse_args():
     args.training_type = args.training_type or args.training_type_arg
     if args.training_type is None:
         args.training_type = 'Normal'
+    elif args.training_type == "dp":
+        args.training_type = "DP"
     elif args.training_type in ["past", "Reg"]:
         args.training_type = "PAST"
     del args.training_type_arg
@@ -143,11 +147,9 @@ def get_target_model(name="resnet18", num_classes=10):
             model = torchvision.models.resnet18()
         model.fc = nn.Sequential(nn.Linear(512, num_classes))
     elif name == "dense121":
-        # model = torchvision.models.densenet121(weights="IMAGENET1K_V1")
-        model = torchvision.models.densenet121()
+        model = torchvision.models.densenet121(weights="IMAGENET1K_V1")
+        # model = torchvision.models.densenet121()
         model.classifier = nn.Sequential(nn.Linear(1024, num_classes))
-    elif name == "MobileViT-S":
-        model = timm.create_model("mobilevit_s", pretrained=False, num_classes=num_classes)
     elif name == "TexasClassifier":
         model= Texas(num_classes = num_classes)
     elif name == "PurchaseClassifier":
@@ -250,10 +252,16 @@ if __name__ == "__main__":
 
     elif opt.training_type == "DP":
         save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-        save_pth = f'{save_pth_before_last_slash}_{opt.dp_delta}/{save_pth_after_last_slash}'
+        save_pth = f'{save_pth_before_last_slash}_eps{opt.dp_epsilon}_delta{opt.dp_delta}_clip{opt.dp_grad_norm}/{save_pth_after_last_slash}'
 
         total_evaluator = TrainTargetDP(
-            model=target_model, epochs=opt.epochs, log_path=save_pth, delta=opt.dp_delta, num_class=opt.num_class)
+            model=target_model,
+            epochs=opt.epochs,
+            log_path=save_pth,
+            dp_epsilon=opt.dp_epsilon,
+            delta=opt.dp_delta,
+            grad_norm=opt.dp_grad_norm,
+            num_class=opt.num_class)
         total_evaluator.train(train_loader, test_loader)
 
     elif opt.training_type == "MixupMMD":

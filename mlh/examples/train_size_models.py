@@ -118,6 +118,8 @@ def parse_args():
                         help='comma delimited input shape input')
     parser.add_argument('--log_path', type=str,
                         default='./save', help='data_path')
+    parser.add_argument('--sample_size', type=int, default=5000,
+                        help='number of samples selected from train and inference loaders for sparse training')
     parser.add_argument('--seed', type=int, default=0, help='random seed')
 
     args = parser.parse_args()
@@ -174,6 +176,26 @@ def evaluate(args, model, dataloader):
         correct += predicted.eq(labels).sum().item()
     model.train()
     return correct / total
+
+
+def select_loader_samples(loader, sample_size=5000, seed=0):
+    dataset = loader.dataset
+    if len(dataset) <= sample_size:
+        return loader
+
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    indices = torch.randperm(len(dataset), generator=generator)[:sample_size].tolist()
+    subset = torch.utils.data.Subset(dataset, indices)
+
+    return torch.utils.data.DataLoader(
+        subset,
+        batch_size=loader.batch_size,
+        shuffle=True,
+        num_workers=loader.num_workers,
+        pin_memory=loader.pin_memory,
+        drop_last=loader.drop_last,
+    )
 
 
 if __name__ == "__main__":
@@ -265,8 +287,13 @@ if __name__ == "__main__":
             "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
     
     model = target_model
-
+    
     if opt.training_type == "PAST":
+        train_loader = select_loader_samples(train_loader, sample_size=opt.sample_size, seed=opt.seed)
+        inference_loader = select_loader_samples(inference_loader, sample_size=opt.sample_size, seed=opt.seed)
+        print(f"train_loader: {len(train_loader.dataset)} samples")
+        print(f"inference_loader: {len(inference_loader.dataset)} samples")
+
         pruner = PAST()
         total_evaluator = TrainTargetNormal(
             model=target_model, epochs=opt.reg_epoch, learning_rate=opt.lr, weight_decay=0, log_path=save_pth)

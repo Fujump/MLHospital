@@ -2,7 +2,6 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 import torchvision
-import timm
 from mlh.defenses.membership_inference.AdvReg import TrainTargetAdvReg
 from mlh.defenses.membership_inference.DPSGD import TrainTargetDP
 from mlh.defenses.membership_inference.LabelSmoothing import TrainTargetLabelSmoothing
@@ -24,6 +23,7 @@ import torchvision.transforms as transforms
 import argparse
 import numpy as np
 import torch.optim as optim
+import gc
 
 def set_seed(seed):
     torch.manual_seed(seed)
@@ -78,6 +78,7 @@ def parse_args():
     parser_h.add_argument('--reg_epoch', type=int, default=50, help='')
     parser_h.add_argument('--reg_clamp', type=int, default=10000, help='')
     parser_h.add_argument('--reg_norm', type=str, default="l1", help='')
+    parser_h.add_argument('--reg_lr', type=float, default=0.01, help='')
     
     # pre-train
     parser.add_argument('--pre_train', type=str, default="Normal",
@@ -143,11 +144,9 @@ def get_target_model(name="resnet18", num_classes=10):
             model = torchvision.models.resnet18()
         model.fc = nn.Sequential(nn.Linear(512, num_classes))
     elif name == "dense121":
-        # model = torchvision.models.densenet121(weights="IMAGENET1K_V1")
-        model = torchvision.models.densenet121()
+        model = torchvision.models.densenet121(weights="IMAGENET1K_V1")
+        # model = torchvision.models.densenet121()
         model.classifier = nn.Sequential(nn.Linear(1024, num_classes))
-    elif name == "MobileViT-S":
-        model = timm.create_model("mobilevit_s", pretrained=False, num_classes=num_classes)
     elif name == "TexasClassifier":
         model= Texas(num_classes = num_classes)
     elif name == "PurchaseClassifier":
@@ -181,7 +180,7 @@ if __name__ == "__main__":
     opt = parse_args()
     set_seed(opt.seed)
     s = GetDataLoader(opt)
-    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised(batch_size=128)
+    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised(batch_size=128, num_workers=0)
 
     if opt.mode == "target":
         train_loader, inference_loader, test_loader = target_train_loader, target_inference_loader, target_test_loader,
@@ -190,25 +189,28 @@ if __name__ == "__main__":
     else:
         raise ValueError("opt.mode should be target or shadow")
 
-    # if opt.mode=='target':
-    #     target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/target/{opt.model}_model.pth')
-    # elif opt.mode=='shadow':
-    #     target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/shadow/{opt.model}_model.pth')
+    if opt.mode=='target':
+        target_path = "trained_models/CIFAR10/Normal_L1-0.001-10050-10000_1.4/target/model_epochs_0.0/resnet18_100.pth"
+        target_model=torch.load(target_path)
+    elif opt.mode=='shadow':
+        shadow_path = "trained_models/CIFAR10/Normal_L1-0.001-10050-10000_1.4/shadow/model_epochs_0.0/resnet18_100.pth"
+        target_model=torch.load(shadow_path)
+        # target_model=torch.load(f'{opt.log_path}/{opt.dataset}/{opt.pre_train}/shadow/{opt.model}_model.pth')
     
-    target_model = get_target_model(name=opt.model, num_classes=opt.num_class).cuda()
+    # target_model = get_target_model(name=opt.model, num_classes=opt.num_class).cuda()
      
     save_pth = f'{opt.log_path}/{opt.dataset}/{opt.pre_train}_L1/{opt.mode}'
 
     if opt.training_type == "PAST":
         save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
         if opt.reg_norm=="l1":
-            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}_{opt.reg_alpha}/{save_pth_after_last_slash}'
+            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}_{opt.reg_alpha}_{opt.reg_lr}/{save_pth_after_last_slash}'
         else:
-            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}-{opt.reg_norm}_{opt.reg_alpha}/{save_pth_after_last_slash}'
-        
-        total_evaluator = TrainTargetNormal(
-        model=target_model, epochs=opt.epochs, learning_rate=opt.lr, log_path=save_pth, num_class=opt.num_class, weight_decay=opt.weight_l2)
-        total_evaluator.train(train_loader, inference_loader, test_loader)
+            save_pth = f'{save_pth_before_last_slash}-{opt.reg_weight}-{opt.epochs}{opt.reg_epoch}-{opt.reg_clamp}-{opt.reg_norm}_{opt.reg_alpha}_{opt.reg_lr}/{save_pth_after_last_slash}'
+
+        # total_evaluator = TrainTargetNormal(
+        # model=target_model, epochs=opt.epochs, learning_rate=opt.lr, log_path=save_pth, num_class=opt.num_class, weight_decay=opt.weight_l2)
+        # total_evaluator.train(train_loader, inference_loader, test_loader)
         
     elif opt.training_type == "Normal":
         total_evaluator = TrainTargetNormal(
@@ -269,14 +271,22 @@ if __name__ == "__main__":
     if opt.training_type == "PAST":
         pruner = PAST()
         total_evaluator = TrainTargetNormal(
-            model=target_model, epochs=opt.reg_epoch, learning_rate=opt.lr, weight_decay=0, log_path=save_pth)
+            model=target_model, epochs=opt.reg_epoch, learning_rate=opt.reg_lr, weight_decay=0, log_path=save_pth)
         
         total_evaluator.train_sparse(train_loader,inference_loader, test_loader,pruner=pruner,args=opt)
     
+    del target_train_loader, target_inference_loader, target_test_loader
+    del shadow_train_loader, shadow_inference_loader, shadow_test_loader
+    del train_loader, inference_loader, test_loader
+    gc.collect()
+
+    model = model.to("cpu")
+    torch.cuda.empty_cache()
+
     torch.save(model.state_dict(),
                os.path.join(save_pth, f"{opt.model}.pth"))
     # 4. Save & Load
     model.zero_grad() # clear gradients to avoid a large file size
     torch.save(model,
                os.path.join(save_pth, f"{opt.model}_model.pth")) # !! no .state_dict for saving
-    print("Finish Training")
+    print("Finish Training", flush=True)

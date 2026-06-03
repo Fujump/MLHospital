@@ -171,3 +171,8 @@ figs/
 save*
 log*
 .DS_Store
+
+trained_models
+save_baseline
+*.pdf
+*.json

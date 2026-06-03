@@ -36,6 +36,7 @@ setup(
         "torchkit",
         "opacus",
         "art",
+        "timm",
         "torchvision",
     ],
     packages=["mlh.data_preprocessing",

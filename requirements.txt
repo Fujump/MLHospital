@@ -3,4 +3,5 @@
 
 opacus==1.3.0
 runx==0.0.11
+timm
 torch-pruning

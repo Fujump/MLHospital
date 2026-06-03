@@ -14,7 +14,7 @@ import torchvision.transforms as transforms
 import argparse
 import numpy as np
 import torch.optim as optim
-torch.manual_seed(0)
+# torch.manual_seed(0)
 np.random.seed(0)
 torch.set_num_threads(1)
 

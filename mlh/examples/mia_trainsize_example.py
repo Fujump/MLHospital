@@ -21,6 +21,26 @@ def set_seed(seed):
     torch.set_num_threads(1)
 
 
+def select_loader_samples(loader, sample_size=5000, seed=0):
+    dataset = loader.dataset
+    if len(dataset) <= sample_size:
+        return loader
+
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+    indices = torch.randperm(len(dataset), generator=generator)[:sample_size].tolist()
+    subset = torch.utils.data.Subset(dataset, indices)
+
+    return torch.utils.data.DataLoader(
+        subset,
+        batch_size=loader.batch_size,
+        shuffle=True,
+        num_workers=loader.num_workers,
+        pin_memory=loader.pin_memory,
+        drop_last=loader.drop_last,
+    )
+    
+    
 def parse_args():
     parser = argparse.ArgumentParser('argument for training')
 
@@ -55,6 +75,8 @@ def parse_args():
                         help='path to target model checkpoint')
     parser.add_argument('--shadow_path', type=str, default=None,
                         help='path to shadow model checkpoint')
+    parser.add_argument('--sample_size', type=int, default=5000,
+                        help='number of samples selected from target/shadow train and test loaders')
     parser.add_argument('--seed', type=int, default=0,
                         help='random seed')
     
@@ -103,8 +125,8 @@ if __name__ == "__main__":
     
     print(f'target_model:{target_path}')
     print(f'shadow_path:{shadow_path}')
-    target_model = torch.load(target_path, map_location=args.device)
-    shadow_model = torch.load(shadow_path, map_location=args.device)
+    target_model = torch.load(target_path)
+    shadow_model = torch.load(shadow_path)
     target_model = target_model.to(args.device)
     shadow_model = shadow_model.to(args.device)
     target_model.eval()
@@ -115,6 +137,26 @@ if __name__ == "__main__":
     
     attack_type = args.attack_type
 
+    # target_train_loader = select_loader_samples(target_train_loader, sample_size=args.sample_size, seed=args.seed)
+    # shadow_train_loader = select_loader_samples(shadow_train_loader, sample_size=args.sample_size, seed=args.seed)
+    # target_test_loader = select_loader_samples(target_test_loader, sample_size=args.sample_size, seed=args.seed)
+    # shadow_test_loader = select_loader_samples(shadow_test_loader, sample_size=args.sample_size, seed=args.seed)
+    
+    target_train_loader = select_loader_samples(target_inference_loader, sample_size=args.sample_size, seed=args.seed)
+    shadow_train_loader = select_loader_samples(shadow_inference_loader, sample_size=args.sample_size, seed=args.seed)
+    
+    target_test_loader = select_loader_samples(target_test_loader, sample_size=args.sample_size, seed=args.seed)
+    shadow_test_loader = select_loader_samples(shadow_test_loader, sample_size=args.sample_size, seed=args.seed)
+    
+    
+    # target_test_loader = select_loader_samples(target_inference_loader, sample_size=args.sample_size, seed=args.seed)
+    # shadow_test_loader = select_loader_samples(shadow_inference_loader, sample_size=args.sample_size, seed=args.seed)
+    
+
+    
+    print(f"train_loader: {len(target_train_loader.dataset)} samples")
+    print(f"inference_loader: {len(shadow_train_loader.dataset)} samples")
+        
     if attack_type == "label-only":
         attack_model = LabelOnlyMIA(
             device=args.device,

@@ -40,14 +40,14 @@ class PAST:
     def regularize(self, model, grad_gaps, reg_weight, adaptive_strength=5, args=None, **kwargs):
         save_reg = False
         # if (kwargs['e']%5==1) and (kwargs['batch_n']%10==1):
-        if (kwargs['batch_n'] % 100 == 1):
+        if os.environ.get("PAST_SAVE_ADAPTIVE_REGS") == "1" and (kwargs['batch_n'] % 100 == 1):
             save_reg = True
             e, batch_n = kwargs['e'], kwargs['batch_n']
             adaptive_regs = {}
 
         # L1正则+clamp
         if args.reg_norm == "l1":
-            print("l1 regularization with clamp with parameter reg_weight, adaptive_strength:", reg_weight, adaptive_strength)
+            # print("l1 regularization with clamp with parameter reg_weight, adaptive_strength:", reg_weight, adaptive_strength)
             for name, m in model.named_modules():
                 # 只对BN层进行处理
                 if isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d, nn.Conv2d, nn.Linear)):

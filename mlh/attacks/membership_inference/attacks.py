@@ -269,9 +269,9 @@ class AttackDataset():
 
         if self.attack_type == "white-box":
             attack_train_dataset = [
-                {"shadow_train_data": mem_data0, "shadow_test_data": mem_data1},
-                {"shadow_train_mem_label": mem_label0, "shadow_test_mem_label": mem_label1},
-                {"shadow_train_label": original_label0, "shadow_test_label": original_label1}
+                {"shadow_train_data": mem_data2, "shadow_test_data": mem_data3},
+                {"shadow_train_mem_label": mem_label2, "shadow_test_mem_label": mem_label3},
+                {"shadow_train_label": original_label2, "shadow_test_label": original_label3}
             ]
         else:
             attack_train_dataset = torch.utils.data.TensorDataset(
@@ -420,7 +420,7 @@ class MetricBasedMIA(MembershipInferenceAttack):
         self.s_te_labels = np.array(self.attack_train_dataset[2]["shadow_test_label"])
 
         self.t_tr_labels = np.array(self.attack_test_dataset[2]["target_train_label"])
-        self.t_te_labels = np.array(self.attack_test_dataset[2]["target_train_label"])
+        self.t_te_labels = np.array(self.attack_test_dataset[2]["target_test_label"])
 
         self.s_tr_mem_labels = np.ones(len(self.s_tr_labels))
         self.s_te_mem_labels = np.zeros(len(self.s_te_labels))

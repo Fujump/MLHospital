@@ -31,7 +31,7 @@ from opacus.validators import ModuleValidator
 
 
 class TrainTargetDP(Trainer):
-    def __init__(self, model, device="cuda:0", num_class=10, epochs=100, learning_rate=0.01, momentum=0.9, weight_decay=5e-4, batch_size=128, noise_scale=100, grad_norm=1, delta=1e-5, log_path="./"):
+    def __init__(self, model, device="cuda:0", num_class=10, epochs=100, learning_rate=0.01, momentum=0.9, weight_decay=5e-4, batch_size=128, dp_epsilon=100, grad_norm=1, delta=1e-5, log_path="./", noise_scale=None):
 
         super().__init__()
 
@@ -41,7 +41,9 @@ class TrainTargetDP(Trainer):
         self.num_class = num_class
         self.epochs = epochs
         self.batch_size = batch_size
-        self.noise_scale = noise_scale
+        if noise_scale is not None:
+            dp_epsilon = noise_scale
+        self.dp_epsilon = dp_epsilon
         self.grad_norm = grad_norm
         self.delta = delta
         self.model = ModuleValidator.fix(self.model)
@@ -58,6 +60,8 @@ class TrainTargetDP(Trainer):
         self.log_path = log_path
         logx.initialize(logdir=self.log_path,
                         coolname=False, tensorboard=False)
+        logx.msg('DP-SGD target epsilon: %.5f, delta: %.5f, max_grad_norm: %.5f' % (
+            self.dp_epsilon, self.delta, self.grad_norm))
 
     @staticmethod
     def _sample_weight_decay():
@@ -96,7 +100,7 @@ class TrainTargetDP(Trainer):
             optimizer=self.optimizer,
             data_loader=train_loader,
             epochs=self.epochs,
-            target_epsilon=self.noise_scale,
+            target_epsilon=self.dp_epsilon,
             target_delta=self.delta,
             max_grad_norm=self.grad_norm,
         )
@@ -107,7 +111,7 @@ class TrainTargetDP(Trainer):
         #     # sample_rate=0.01,
         #     # params for renyi dp
         #     alphas=[1 + x / 10.0 for x in range(1, 100)] + list(range(12, 64)),
-        #     noise_multiplier=self.noise_scale,  # sigma
+        #     noise_multiplier=noise_multiplier,  # sigma
         #     max_grad_norm=self.grad_norm,  # this is from dp-sgd paper
         # )
         # privacy_engine.attach(self.optimizer)
