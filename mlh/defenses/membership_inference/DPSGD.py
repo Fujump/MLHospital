@@ -46,7 +46,7 @@ class TrainTargetDP(Trainer):
         self.dp_epsilon = dp_epsilon
         self.grad_norm = grad_norm
         self.delta = delta
-        self.model = ModuleValidator.fix(self.model)
+        self.model = ModuleValidator.fix_and_validate(self.model)
         self.model = self.model.to(self.device)
         self.optimizer = torch.optim.SGD(
             self.model.parameters(),

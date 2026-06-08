@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=5
 
-EPSILONS=(100 200 400)
-MAX_GRAD_NORMS=(5 10 20)
-DP_DELTA=1e-5
+# EPSILONS=(100 200 300 400)
+EPSILONS=(300 400)
+MAX_GRAD_NORMS=(0.5 1 2 5 10)
+DP_DELTA=(1e-6)
 
 for eps in "${EPSILONS[@]}"; do
   for grad_norm in "${MAX_GRAD_NORMS[@]}"; do
@@ -12,16 +13,16 @@ for eps in "${EPSILONS[@]}"; do
 
     python mlh/examples/train_target_dp.py \
       --mode shadow \
-      --epochs 100 \
+      --epochs 150 \
       --gpu 0 \
       --model resnet18 \
       --dataset CIFAR10 \
       --num_class 10 \
       --inference-dataset CIFAR10 \
       --data-path ../datasets/ \
-      --log_path ./trained_models/DP/lr3e1 \
+      --log_path ./trained_models/new_DP/lr1e-2 \
       --seed 0 \
-      --lr 0.001 \
+      --lr 0.01 \
       dp \
       --dp_epsilon "${eps}" \
       --dp_delta "${DP_DELTA}" \

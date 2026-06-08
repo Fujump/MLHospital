@@ -77,7 +77,8 @@ if __name__ == "__main__":
     args = parse_args()
     set_seed(args.seed)
     s = GetDataLoader(args)
-    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised()
+    target_train_loader, target_inference_loader, target_test_loader, shadow_train_loader, shadow_inference_loader, shadow_test_loader = s.get_data_supervised(
+        batch_size=args.batch_size, num_workers=args.num_workers)
   
     # if args.prune=="t":
     #     t_path=f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned/target/{args.model}_model.pth' if args.global_pruning=="f" else f'{args.log_path}/{args.dataset}/{args.training_type}_{args.pruner}_pruned_global/target/{args.model}_model.pth'
@@ -157,7 +158,9 @@ if __name__ == "__main__":
                 attack_type=attack_type,
                 attack_train_dataset=attack_dataset.attack_train_dataset,
                 attack_test_dataset=attack_dataset.attack_test_dataset,
-                batch_size=128)
+                batch_size=128,
+                save_path=args.attack_log_path,
+                target_train_samples=attack_dataset.target_train_info.get("samples"))
         elif "augmentation" in attack_type:
             attack_model = DataAugmentationMIA(
                 num_class = attack_dataset_rotation.attack_train_dataset.data.shape[1],

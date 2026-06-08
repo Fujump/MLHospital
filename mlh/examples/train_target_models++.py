@@ -224,16 +224,14 @@ if __name__ == "__main__":
         total_evaluator.train(train_loader, test_loader)
         
     elif opt.training_type == "RelaxLoss":
-        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-        save_pth = f'{save_pth_before_last_slash}_{opt.relax_alpha}/{save_pth_after_last_slash}'
+        save_pth = f'{opt.log_path}/{opt.dataset}/RelaxLoss_{opt.relax_alpha}/{opt.mode}'
 
         total_evaluator = TrainTargetRelaxLoss(
             model=target_model, epochs=opt.epochs, log_path=save_pth, alpha=opt.relax_alpha, num_class=opt.num_class)
         total_evaluator.train(train_loader, test_loader)
 
     elif opt.training_type == "LabelSmoothing":
-        save_pth_before_last_slash, save_pth_after_last_slash = save_pth.rsplit('/', 1)
-        save_pth = f'{save_pth_before_last_slash}_{opt.smooth_eps}/{save_pth_after_last_slash}'
+        save_pth = f'{opt.log_path}/{opt.dataset}/LabelSmoothing_{opt.smooth_eps}/{opt.mode}'
 
         total_evaluator = TrainTargetLabelSmoothing(
             model=target_model, epochs=opt.epochs, log_path=save_pth, smooth_eps=opt.smooth_eps, num_class=opt.num_class)

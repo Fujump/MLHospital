@@ -257,6 +257,7 @@ if __name__ == "__main__":
         total_evaluator = TrainTargetDP(
             model=target_model,
             epochs=opt.epochs,
+            learning_rate=opt.lr,
             log_path=save_pth,
             dp_epsilon=opt.dp_epsilon,
             delta=opt.dp_delta,
@@ -272,7 +273,9 @@ if __name__ == "__main__":
         raise ValueError(
             "opt.training_type should be Normal, LabelSmoothing, AdvReg, DP, MixupMMD, PATE")
     
-    model = target_model
+    model = total_evaluator.model if opt.training_type == "DP" else target_model
+    if hasattr(model, "to_standard_module"):
+        model = model.to_standard_module()
 
     if opt.training_type == "PAST":
         pruner = PAST()

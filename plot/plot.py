@@ -143,7 +143,7 @@ def plot_no_defense_auc_bar(output_dir: Path) -> None:
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    fig, ax = plt.subplots(figsize=(8, 6))
+    fig, ax = plt.subplots(figsize=(7, 6))
     bars = ax.bar(
         labels,
         auc_values,
@@ -169,7 +169,7 @@ def plot_no_defense_auc_bar(output_dir: Path) -> None:
         ax.text(
             bar.get_x() + bar.get_width() / 2,
             value + 0.015,
-            f"{value:.3f}",
+            f"{value:.1f}",
             ha="center",
             va="bottom",
             fontsize=TICK_LABEL_SIZE,
@@ -184,17 +184,17 @@ def plot_no_defense_auc_bar(output_dir: Path) -> None:
 
 def plot_dp_past_grouped_bar(output_dir: Path) -> None:
     metrics = ["Test Accuracy", "Attack AUC"]
-    accuracy_percent = [50.630, 69.630]
-    dp_values = [accuracy_percent[0] / 100, 0.501]
-    past_values = [accuracy_percent[1] / 100, 0.5358]
+    accuracy_percent = [50.63, 67.38]
+    dp_values = [accuracy_percent[0] / 100, 0.512]
+    past_values = [accuracy_percent[1] / 100, 0.535]
     dp_color = "#d15b5f"
     past_color = "#4990b8"
-    x_positions = [0, 0.68]
-    bar_width = 0.22
-    axis_label_size = 24
-    tick_label_size = 21
-    legend_label_size = 22
-    value_label_size = 20
+    x_positions = [0, 1.1]
+    bar_width = 0.34
+    axis_label_size = AXIS_LABEL_SIZE
+    tick_label_size = TICK_LABEL_SIZE
+    legend_label_size = LEGEND_LABEL_SIZE
+    value_label_size = TICK_LABEL_SIZE
 
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -271,10 +271,119 @@ def plot_dp_past_grouped_bar(output_dir: Path) -> None:
     fig.savefig(output_dir / "dp_past_grouped_bar.pdf")
     plt.close(fig)
 
+def plot_dot_plot(output_dir: Path) -> None:
+    labels = ["No defense", "RelaxLoss", "PAST"]
+    test_acc = [68.37, 67.84, 67.38]
+    tpr_at_5_fpr = [1.0, 0.5, 0.344]
+    colors = ["#cc5a5c", "#4a90b5", "#70a37f"]
+    markers = ["o", "s", "^"]
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    for label, x_value, y_value, color, marker in zip(labels, test_acc, tpr_at_5_fpr, colors, markers):
+        ax.scatter(
+            x_value,
+            y_value,
+            s=170,
+            color=color,
+            marker=marker,
+            edgecolors="black",
+            linewidths=1.2,
+            label=label,
+            zorder=3,
+        )
+
+    for label, x_value, y_value in zip(labels, test_acc, tpr_at_5_fpr):
+        ax.annotate(
+            label,
+            (x_value, y_value),
+            xytext=(8, 8),
+            textcoords="offset points",
+            fontsize=14,
+            fontweight="bold",
+        )
+
+    ax.set_xlabel("Test Accuracy (%)")
+    ax.set_ylabel("TPR@5%FPR")
+    ax.xaxis.label.set_size(AXIS_LABEL_SIZE)
+    ax.xaxis.label.set_weight("bold")
+    ax.yaxis.label.set_size(AXIS_LABEL_SIZE)
+    ax.yaxis.label.set_weight("bold")
+    ax.tick_params(axis="x", labelsize=TICK_LABEL_SIZE, width=2.5)
+    ax.tick_params(axis="y", labelsize=TICK_LABEL_SIZE, width=2.5)
+    ax.set_xlim(50.0, 75.0)
+    ax.set_ylim(0.25, 1.0)
+    ax.set_xticks([50.0, 55.0, 60.0, 65.0, 70.0, 75.0])
+    ax.set_yticks([0.3, 0.5, 0.7, 0.9, 1.0])
+    ax.grid(True, linestyle="--", linewidth=0.7, alpha=0.45)
+    ax.set_axisbelow(True)
+
+    for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    fig.tight_layout()
+    fig.savefig(output_dir / "dot_plot.pdf")
+    plt.close(fig)
+
+
+def plot_fpr(output_dir: Path) -> None:
+    labels = ["No defense", "RelaxLoss", "PAST"]
+    tpr_at_5_fpr = [1.0, 0.5, 0.344]
+    colors = ["#cc5a5c", "#70a37f", "#4a90b5"]
+    x_positions = [0.12, 0.54, 0.96]
+    bar_width = 0.22
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    fig, ax = plt.subplots(figsize=(8, 6))
+    bars = ax.bar(
+        x_positions,
+        tpr_at_5_fpr,
+        width=bar_width,
+        color=colors,
+        edgecolor="black",
+        linewidth=1.2,
+        zorder=3,
+    )
+
+    for bar, value in zip(bars, tpr_at_5_fpr):
+        ax.annotate(
+            f"{value:.3f}",
+            (bar.get_x() + bar.get_width() / 2, value),
+            xytext=(0, 8),
+            textcoords="offset points",
+            ha="center",
+            va="bottom",
+            fontsize=TICK_LABEL_SIZE,
+            fontweight="bold",
+        )
+
+    ax.set_ylabel("TPR@5%FPR")
+    ax.yaxis.label.set_size(AXIS_LABEL_SIZE)
+    ax.yaxis.label.set_weight("bold")
+    ax.tick_params(axis="x", labelsize=TICK_LABEL_SIZE, width=2.5)
+    ax.tick_params(axis="y", labelsize=TICK_LABEL_SIZE, width=2.5)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(labels)
+    ax.set_xlim(-0.15, 1.23)
+    ax.set_ylim(0.0, 1.1)
+    ax.set_yticks([0.0, 0.2, 0.4, 0.6, 0.8, 1.0])
+    ax.grid(True, axis="y", linestyle="--", linewidth=0.7, alpha=0.45)
+    ax.set_axisbelow(True)
+
+    for tick_label in ax.get_xticklabels() + ax.get_yticklabels():
+        tick_label.set_fontweight("bold")
+
+    fig.tight_layout()
+    fig.savefig(output_dir / "fpr.pdf")
+    plt.close(fig)
+
 
 if __name__ == "__main__":
     output_path = Path(__file__).resolve().parent
     # plot_seed_metrics(output_path)
     # plot_sample_size_metrics(output_path)
     # plot_no_defense_auc_bar(output_path)
-    plot_dp_past_grouped_bar(output_path)
+    # plot_dp_past_grouped_bar(output_path)
+    plot_fpr(output_path)

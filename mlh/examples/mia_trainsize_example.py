@@ -137,14 +137,11 @@ if __name__ == "__main__":
     
     attack_type = args.attack_type
 
-    # target_train_loader = select_loader_samples(target_train_loader, sample_size=args.sample_size, seed=args.seed)
-    # shadow_train_loader = select_loader_samples(shadow_train_loader, sample_size=args.sample_size, seed=args.seed)
+    target_train_loader = select_loader_samples(target_train_loader, sample_size=args.sample_size, seed=args.seed)
+    shadow_train_loader = select_loader_samples(shadow_train_loader, sample_size=args.sample_size, seed=args.seed)
     # target_test_loader = select_loader_samples(target_test_loader, sample_size=args.sample_size, seed=args.seed)
     # shadow_test_loader = select_loader_samples(shadow_test_loader, sample_size=args.sample_size, seed=args.seed)
-    
-    target_train_loader = select_loader_samples(target_inference_loader, sample_size=args.sample_size, seed=args.seed)
-    shadow_train_loader = select_loader_samples(shadow_inference_loader, sample_size=args.sample_size, seed=args.seed)
-    
+
     target_test_loader = select_loader_samples(target_test_loader, sample_size=args.sample_size, seed=args.seed)
     shadow_test_loader = select_loader_samples(shadow_test_loader, sample_size=args.sample_size, seed=args.seed)
     
@@ -154,8 +151,8 @@ if __name__ == "__main__":
     
 
     
-    print(f"train_loader: {len(target_train_loader.dataset)} samples")
-    print(f"inference_loader: {len(shadow_train_loader.dataset)} samples")
+    print(f"target_train_loader: {len(target_train_loader.dataset)} samples")
+    print(f"shadow_train_loader: {len(shadow_train_loader.dataset)} samples")
         
     if attack_type == "label-only":
         attack_model = LabelOnlyMIA(

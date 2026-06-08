@@ -31,8 +31,10 @@ from scipy.stats import kurtosis, skew
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score, roc_curve, auc, classification_report
 from runx.logx import logx
 from tqdm import tqdm
+import csv
 import numpy as np
 import os
+from torchvision.utils import save_image
 from art.attacks.evasion import HopSkipJump
 from art.utils import compute_success
 from art.estimators.classification.pytorch import PyTorchClassifier
@@ -159,12 +161,15 @@ class ModelParser():
 
         return {"targets" :target_list, "gird_x_w": (all_stats_x, all_stats_w)}
 
-    def get_posteriors(self, dataloader):
+    def get_posteriors(self, dataloader, keep_samples=False):
         self.model.eval()
         info = {}
         target_list = []
         posteriors_list = []
+        samples_list = []
         for btch_idx, (inputs, targets) in tqdm(enumerate(dataloader)):
+            if keep_samples:
+                samples_list.append(inputs.detach().cpu())
             inputs, targets = inputs.to(self.device), targets.to(self.device)
             outputs = self.model(inputs)
             posteriors = F.softmax(outputs, dim=1)
@@ -172,7 +177,10 @@ class ModelParser():
             target_list += targets.cpu().tolist()
             posteriors_list += posteriors.detach().cpu().numpy().tolist()
 
-        return {"targets": target_list, "posteriors": posteriors_list}
+        info = {"targets": target_list, "posteriors": posteriors_list}
+        if keep_samples:
+            info["samples"] = torch.cat(samples_list, dim=0)
+        return info
 
     def parse_info_whitebox(self, dataloader, layers):
         self.model.eval()
@@ -225,7 +233,7 @@ class AttackDataset():
         else:
             # if attack_type == "black-box":
             self.target_train_info = self.target_model_parser.get_posteriors(
-                target_train_dataloader)
+                target_train_dataloader, keep_samples=(attack_type == "metric-based"))
             self.target_test_info = self.target_model_parser.get_posteriors(
                 target_test_dataloader)
             self.shadow_train_info = self.shadow_model_parser.get_posteriors(
@@ -354,7 +362,9 @@ class MetricBasedMIA(MembershipInferenceAttack):
             attack_type,
             attack_train_dataset,
             attack_test_dataset,
-            batch_size=128):
+            batch_size=128,
+            save_path=None,
+            target_train_samples=None):
 
         super().__init__()
 
@@ -363,6 +373,8 @@ class MetricBasedMIA(MembershipInferenceAttack):
         self.attack_type = attack_type
         self.attack_train_dataset = attack_train_dataset
         self.attack_test_dataset = attack_test_dataset
+        self.save_path = save_path
+        self.target_train_samples = target_train_samples
         self.attack_train_loader = torch.utils.data.DataLoader(
             attack_train_dataset, batch_size=batch_size, shuffle=True)
         self.attack_test_loader = torch.utils.data.DataLoader(
@@ -458,9 +470,118 @@ class MetricBasedMIA(MembershipInferenceAttack):
             -self.target_test_celoss)
         self.print_result("cross entropy loss train", train_tuple4)
         self.print_result("cross entropy loss test", test_tuple4)
+        self.save_target_loss_leakage_samples(test_tuple4, test_results4)
 
     def print_result(self, name, given_tuple):
-        print("%s" % name, "acc:%.3f, precision:%.3f, recall:%.3f, f1:%.3f, auc:%.3f" % given_tuple)
+        if len(given_tuple) == 6:
+            print("%s" % name,
+                  "acc:%.3f, precision:%.3f, recall:%.3f, f1:%.3f, auc:%.3f, tpr@5%%fpr:%.3f" % given_tuple)
+        else:
+            print("%s" % name, "acc:%.3f, precision:%.3f, recall:%.3f, f1:%.3f, auc:%.3f" % given_tuple)
+
+    @staticmethod
+    def cal_tpr_at_fpr(label, pred_posteriors, target_fpr=0.05):
+        fpr, tpr, _ = roc_curve(label, pred_posteriors)
+        valid_tpr = tpr[fpr <= target_fpr]
+        if len(valid_tpr) == 0:
+            return 0.0
+        return float(np.max(valid_tpr))
+
+    def save_target_loss_leakage_samples(self, test_tuple, test_results):
+        if self.save_path is None:
+            return
+
+        os.makedirs(self.save_path, exist_ok=True)
+        csv_file = os.path.join(self.save_path, "target_loss_leakage_samples.csv")
+        tensor_file = os.path.join(self.save_path, "target_loss_leakage_samples.pt")
+        image_dir = os.path.join(self.save_path, "target_loss_leakage_images")
+        target_train_count = len(self.target_train_celoss)
+        pred_members = np.array(test_results["test_pred_label"][:target_train_count])
+        leakage_scores = -self.target_train_celoss
+        pred_classes = np.argmax(self.t_tr_outputs, axis=1)
+        max_confs = np.max(self.t_tr_outputs, axis=1)
+        order = np.argsort(self.target_train_celoss)
+        leaked_order = [idx for idx in order if pred_members[idx] == 1]
+
+        with open(csv_file, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "rank_by_lowest_loss",
+                "target_train_order",
+                "target_label",
+                "pred_class",
+                "correct",
+                "cross_entropy_loss",
+                "leakage_score_negative_loss",
+                "true_label_confidence",
+                "max_confidence",
+                "loss_attack_pred_member",
+                "loss_attack_test_acc",
+                "loss_attack_test_precision",
+                "loss_attack_test_recall",
+                "loss_attack_test_f1",
+                "loss_attack_test_auc",
+                "loss_attack_test_tpr_at_5_fpr",
+            ])
+            for rank, idx in enumerate(order, start=1):
+                writer.writerow([
+                    rank,
+                    int(idx),
+                    int(self.t_tr_labels[idx]),
+                    int(pred_classes[idx]),
+                    int(pred_classes[idx] == self.t_tr_labels[idx]),
+                    float(self.target_train_celoss[idx]),
+                    float(leakage_scores[idx]),
+                    float(self.t_tr_conf[idx]),
+                    float(max_confs[idx]),
+                    int(pred_members[idx]),
+                    float(test_tuple[0]),
+                    float(test_tuple[1]),
+                    float(test_tuple[2]),
+                    float(test_tuple[3]),
+                    float(test_tuple[4]),
+                    float(test_tuple[5]),
+                ])
+
+        if self.target_train_samples is not None:
+            samples = self.target_train_samples[leaked_order].detach().cpu()
+            labels = torch.from_numpy(self.t_tr_labels[leaked_order]).long()
+            pred_classes_tensor = torch.from_numpy(pred_classes[leaked_order]).long()
+            losses = torch.from_numpy(self.target_train_celoss[leaked_order]).float()
+            true_label_conf = torch.from_numpy(self.t_tr_conf[leaked_order]).float()
+            original_order = torch.tensor(leaked_order).long()
+            rank_by_loss = torch.arange(1, len(leaked_order) + 1).long()
+            torch.save({
+                "samples": samples,
+                "target_labels": labels,
+                "pred_classes": pred_classes_tensor,
+                "cross_entropy_loss": losses,
+                "true_label_confidence": true_label_conf,
+                "target_train_order": original_order,
+                "rank_by_lowest_loss": rank_by_loss,
+                "loss_attack_pred_member": torch.ones(len(leaked_order), dtype=torch.long),
+                "loss_attack_test_metrics": {
+                    "acc": float(test_tuple[0]),
+                    "precision": float(test_tuple[1]),
+                    "recall": float(test_tuple[2]),
+                    "f1": float(test_tuple[3]),
+                    "auc": float(test_tuple[4]),
+                    "tpr_at_5_fpr": float(test_tuple[5]),
+                },
+            }, tensor_file)
+
+            os.makedirs(image_dir, exist_ok=True)
+            image_save_count = 500
+            for rank, idx in enumerate(leaked_order[:image_save_count], start=1):
+                image_file = os.path.join(
+                    image_dir,
+                    f"rank_{rank:04d}_order_{idx:05d}_label_{int(self.t_tr_labels[idx])}_loss_{self.target_train_celoss[idx]:.6f}.png")
+                save_image(self.target_train_samples[idx].detach().cpu(), image_file)
+
+            print(f"Saved {len(leaked_order)} leaked target samples to {tensor_file}")
+            print(f"Saved top {min(image_save_count, len(leaked_order))} leaked target sample images to {image_dir}")
+
+        print(f"Saved target loss leakage metadata to {csv_file}")
 
     def parse_data_metric_based_attacks(self):
         # shadow model
@@ -601,6 +722,8 @@ class MetricBasedMIA(MembershipInferenceAttack):
             train_mem_label, train_pred_label, train_pred_posteriors)
         test_acc, test_precision, test_recall, test_f1, test_auc = super().cal_metrics(
             test_mem_label, test_pred_label, test_pred_posteriors)
+        train_tpr_at_5_fpr = self.cal_tpr_at_fpr(train_mem_label, train_pred_posteriors)
+        test_tpr_at_5_fpr = self.cal_tpr_at_fpr(test_mem_label, test_pred_posteriors)
 
         test_results = {"test_mem_label": test_mem_label,
                         "test_pred_label": test_pred_label,
@@ -608,9 +731,9 @@ class MetricBasedMIA(MembershipInferenceAttack):
                         "test_target_label": test_target_label}
 
         train_tuple = (train_acc, train_precision,
-                       train_recall, train_f1, train_auc)
+                       train_recall, train_f1, train_auc, train_tpr_at_5_fpr)
         test_tuple = (test_acc, test_precision,
-                      test_recall, test_f1, test_auc)
+                      test_recall, test_f1, test_auc, test_tpr_at_5_fpr)
         # print(train_tuple, test_tuple)
         return train_tuple, test_tuple, test_results
 
@@ -687,11 +810,13 @@ class MetricBasedMIA(MembershipInferenceAttack):
             train_mem_label, train_pred_label, train_pred_posteriors)
         test_acc, test_precision, test_recall, test_f1, test_auc = super().cal_metrics(
             test_mem_label, test_pred_label, test_pred_posteriors)
+        train_tpr_at_5_fpr = self.cal_tpr_at_fpr(train_mem_label, train_pred_posteriors)
+        test_tpr_at_5_fpr = self.cal_tpr_at_fpr(test_mem_label, test_pred_posteriors)
 
         train_tuple = (train_acc, train_precision,
-                       train_recall, train_f1, train_auc)
+                       train_recall, train_f1, train_auc, train_tpr_at_5_fpr)
         test_tuple = (test_acc, test_precision,
-                      test_recall, test_f1, test_auc)
+                      test_recall, test_f1, test_auc, test_tpr_at_5_fpr)
         test_results = {"test_mem_label": test_mem_label,
                         "test_pred_label": test_pred_label,
                         "test_pred_prob": test_pred_posteriors,
